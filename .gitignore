@@ -1,0 +1,12 @@
+# Installed dependencies. Both plugins link the Paseo SDK through `file:../../paseo/packages/*`,
+# so node_modules is a set of symlinks into a sibling checkout and is never portable.
+node_modules/
+
+# Build and test output
+dist/
+coverage/
+*.tsbuildinfo
+
+# Editor and OS noise
+.DS_Store
+*.swp
