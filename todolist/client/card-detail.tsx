@@ -1,16 +1,16 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, Modal } from "@getpaseo/plugin/client/react-native";
 import { useState, type ReactNode } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { isAttemptNotSubmitted, isAttemptOutcomeUnknown, isAttemptSettled, stageCertainty } from "../shared/attempt";
-import { STATUS_REASON_LABELS, formatRelativeTime, resolveInProgressIntent } from "../shared/board";
+import { STATUS_REASON_LABELS, WORK_ITEM_PRIORITY_LABELS, WORK_ITEM_STATUS_LABELS, formatRelativeTime, resolveInProgressIntent } from "../shared/board";
 import type { AgentLink, Attempt, WorkItemPriority, WorkItemStatus } from "../shared/schema";
 import { Badge, Button, Notice, toneColor } from "./components";
 import type { WorkItemView } from "./data";
 import { getKnownClientInstanceId } from "./launch";
 import { PriorityPicker, StatusPicker } from "./move-menu";
 import type { TodoStyles } from "./styles";
-import { AGGREGATE_PRESENTATION, DISPLAY_STATE_COLOR, DISPLAY_STATE_PRESENTATION, TEXT } from "./text";
+import { AGGREGATE_PRESENTATION, DISPLAY_STATE_COLOR, DISPLAY_STATE_PRESENTATION, PRIORITY_PRESENTATION, STATUS_PRESENTATION, TEXT } from "./text";
 
 export interface CardActions {
   execute: (view: WorkItemView) => void;
@@ -57,6 +57,54 @@ function Property(props: { styles: TodoStyles; label: string; children: ReactNod
     <View style={props.styles.propertyRow}>
       <Text style={props.styles.propertyLabel}>{props.label}</Text>
       <View style={{ flex: 1, minWidth: 0 }}>{props.children}</View>
+    </View>
+  );
+}
+
+/**
+ * A property on a phone: one row with its current value, which opens its choices underneath. Every
+ * choice at once would stack two or three rows of chips per property on a narrow screen.
+ */
+function PropertyToggle(props: {
+  styles: TodoStyles;
+  theme: PluginTheme;
+  label: string;
+  icon: string;
+  iconColor: string;
+  value: string;
+  hint?: string;
+  expanded: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  const { styles, theme } = props;
+  return (
+    <View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${props.label}: ${props.value}. Change`}
+        accessibilityState={{ expanded: props.expanded }}
+        aria-expanded={props.expanded}
+        onPress={props.onToggle}
+        style={[styles.propertyRow, { alignItems: "center", minHeight: 44, paddingHorizontal: 12, paddingVertical: 6 }]}
+      >
+        <Text style={[styles.propertyLabel, { paddingTop: 0 }]}>{props.label}</Text>
+        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+          <View style={[styles.row, { gap: 6 }]}>
+            <Icon name={props.icon} size={14} color={props.iconColor} />
+            <Text style={[styles.body, { flexShrink: 1 }]} numberOfLines={1}>
+              {props.value}
+            </Text>
+          </View>
+          {props.hint ? (
+            <Text style={styles.mono} numberOfLines={1}>
+              {props.hint}
+            </Text>
+          ) : null}
+        </View>
+        <Icon name={props.expanded ? "ChevronUp" : "ChevronDown"} size={16} color={theme.colors.foregroundMuted} />
+      </Pressable>
+      {props.expanded ? <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>{props.children}</View> : null}
     </View>
   );
 }
@@ -166,6 +214,7 @@ export function CardDetail(props: {
   canLaunch: boolean;
   projectAvailable: boolean;
   now: number;
+  compact: boolean;
 }) {
   const { view } = props;
   const item = view?.item;
@@ -183,6 +232,7 @@ export function CardDetail(props: {
             canLaunch={props.canLaunch}
             projectAvailable={props.projectAvailable}
             now={props.now}
+            compact={props.compact}
           />
         ) : null}
       </Modal.Content>
@@ -198,10 +248,13 @@ function DetailBody(props: {
   canLaunch: boolean;
   projectAvailable: boolean;
   now: number;
+  compact: boolean;
 }) {
   const { styles, theme, view, actions } = props;
   const { item, aggregate } = view;
   const [allAttempts, setAllAttempts] = useState(false);
+  const [openProperty, setOpenProperty] = useState<"status" | "priority" | null>(null);
+  const toggle = (property: "status" | "priority") => setOpenProperty((current) => (current === property ? null : property));
   const presentation = AGGREGATE_PRESENTATION[aggregate.state];
   const archived = Boolean(item.archivedAt);
   const closed = item.status === "done" || item.status === "cancelled";
@@ -259,26 +312,88 @@ function DetailBody(props: {
         </Notice>
       ) : null}
 
-      <View style={[styles.card, { gap: 12 }]}>
-        <Property styles={styles} label="Status">
-          <StatusPicker styles={styles} theme={theme} value={item.status} onChange={(status) => actions.move(view, status)} />
-          <Text style={[styles.mono, { paddingTop: 6 }]}>
-            {STATUS_REASON_LABELS[item.statusReason]} · {formatRelativeTime(item.statusChangedAt, props.now)}
-          </Text>
-        </Property>
-        {!archived ? (
-          <Property styles={styles} label="Priority">
-            <PriorityPicker styles={styles} theme={theme} value={item.priority} onChange={(priority) => actions.setPriority(view, priority)} />
-          </Property>
-        ) : null}
-        <Property styles={styles} label="Agent">
-          <View style={[styles.row, { gap: 6, minHeight: 26 }]}>
-            <Icon name={presentation.icon} size={13} color={toneColor(theme, presentation.tone)} />
-            <Text style={[styles.body, presentation.tone !== "default" ? { color: toneColor(theme, presentation.tone) } : null]}>{presentation.label}</Text>
+      {props.compact ? (
+        <View style={[styles.card, { padding: 0, gap: 0 }]}>
+          <PropertyToggle
+            styles={styles}
+            theme={theme}
+            label="Status"
+            icon={STATUS_PRESENTATION[item.status].icon}
+            iconColor={theme.colors[STATUS_PRESENTATION[item.status].color]}
+            value={WORK_ITEM_STATUS_LABELS[item.status]}
+            hint={`${STATUS_REASON_LABELS[item.statusReason]} · ${formatRelativeTime(item.statusChangedAt, props.now)}`}
+            expanded={openProperty === "status"}
+            onToggle={() => toggle("status")}
+          >
+            <StatusPicker
+              styles={styles}
+              theme={theme}
+              value={item.status}
+              onChange={(status) => {
+                setOpenProperty(null);
+                actions.move(view, status);
+              }}
+            />
+          </PropertyToggle>
+          {!archived ? (
+            <>
+              <View style={styles.divider} />
+              <PropertyToggle
+                styles={styles}
+                theme={theme}
+                label="Priority"
+                icon={PRIORITY_PRESENTATION[item.priority].icon}
+                iconColor={theme.colors[PRIORITY_PRESENTATION[item.priority].color]}
+                value={WORK_ITEM_PRIORITY_LABELS[item.priority]}
+                expanded={openProperty === "priority"}
+                onToggle={() => toggle("priority")}
+              >
+                <PriorityPicker
+                  styles={styles}
+                  theme={theme}
+                  value={item.priority}
+                  onChange={(priority) => {
+                    setOpenProperty(null);
+                    actions.setPriority(view, priority);
+                  }}
+                />
+              </PropertyToggle>
+            </>
+          ) : null}
+          <View style={styles.divider} />
+          <View style={[styles.propertyRow, { alignItems: "center", minHeight: 44, paddingHorizontal: 12, paddingVertical: 6 }]}>
+            <Text style={[styles.propertyLabel, { paddingTop: 0 }]}>Agent</Text>
+            <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+              <View style={[styles.row, { gap: 6 }]}>
+                <Icon name={presentation.icon} size={13} color={toneColor(theme, presentation.tone)} />
+                <Text style={[styles.body, presentation.tone !== "default" ? { color: toneColor(theme, presentation.tone) } : null]}>{presentation.label}</Text>
+              </View>
+              {aggregate.pendingClaim ? <Text style={styles.mono}>Launch prepared by {aggregate.pendingClaim.initiatorLabel}</Text> : null}
+            </View>
           </View>
-          {aggregate.pendingClaim ? <Text style={styles.mono}>Launch prepared by {aggregate.pendingClaim.initiatorLabel}</Text> : null}
-        </Property>
-      </View>
+        </View>
+      ) : (
+        <View style={[styles.card, { gap: 12 }]}>
+          <Property styles={styles} label="Status">
+            <StatusPicker styles={styles} theme={theme} value={item.status} onChange={(status) => actions.move(view, status)} />
+            <Text style={[styles.mono, { paddingTop: 6 }]}>
+              {STATUS_REASON_LABELS[item.statusReason]} · {formatRelativeTime(item.statusChangedAt, props.now)}
+            </Text>
+          </Property>
+          {!archived ? (
+            <Property styles={styles} label="Priority">
+              <PriorityPicker styles={styles} theme={theme} value={item.priority} onChange={(priority) => actions.setPriority(view, priority)} />
+            </Property>
+          ) : null}
+          <Property styles={styles} label="Agent">
+            <View style={[styles.row, { gap: 6, minHeight: 26 }]}>
+              <Icon name={presentation.icon} size={13} color={toneColor(theme, presentation.tone)} />
+              <Text style={[styles.body, presentation.tone !== "default" ? { color: toneColor(theme, presentation.tone) } : null]}>{presentation.label}</Text>
+            </View>
+            {aggregate.pendingClaim ? <Text style={styles.mono}>Launch prepared by {aggregate.pendingClaim.initiatorLabel}</Text> : null}
+          </Property>
+        </View>
+      )}
 
       <Section styles={styles} title="Details">
         {item.details ? (

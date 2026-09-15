@@ -67,6 +67,13 @@ export function BoardCard(props: {
               </Text>
             </View>
           ) : null}
+          {/* Priority shares the meta line rather than taking a row of its own. */}
+          {item.priority !== "none" ? (
+            <View style={[styles.row, { gap: 3, marginLeft: "auto", flexShrink: 0 }]}>
+              <Icon name={priority.icon} size={12} color={theme.colors[priority.color]} />
+              <Text style={[styles.metaText, { color: theme.colors.foreground }]}>{WORK_ITEM_PRIORITY_LABELS[item.priority]}</Text>
+            </View>
+          ) : null}
         </View>
         <Text style={styles.cardTitle} numberOfLines={3}>
           {item.title}
@@ -76,15 +83,9 @@ export function BoardCard(props: {
             {item.details}
           </Text>
         ) : null}
-        {item.priority !== "none" || badge ? (
+        {badge ? (
           <View style={[styles.metaRow, { paddingTop: 2 }]}>
-            {item.priority !== "none" ? (
-              <View style={styles.badge}>
-                <Icon name={priority.icon} size={11} color={theme.colors[priority.color]} />
-                <Text style={styles.badgeText}>{WORK_ITEM_PRIORITY_LABELS[item.priority]}</Text>
-              </View>
-            ) : null}
-            {badge ? <Badge styles={styles} theme={theme} label={presentation.label} icon={presentation.icon} tone={presentation.tone} /> : null}
+            <Badge styles={styles} theme={theme} label={presentation.label} icon={presentation.icon} tone={presentation.tone} />
           </View>
         ) : null}
       </Pressable>

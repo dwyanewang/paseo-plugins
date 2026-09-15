@@ -25,8 +25,8 @@ export function TodoPanel({ theme, host, layout, navigation, workspaceId }: Plug
       host={host}
       navigation={navigation}
       projectFilter={workspace.projectId}
+      projectFilterName={workspace.projectDisplayName}
       defaultWorkspaceId={workspaceId}
-      title={`Todo · ${workspace.projectDisplayName}`}
     />
   );
 }

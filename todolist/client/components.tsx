@@ -65,6 +65,10 @@ export function IconButton(props: {
   /** Resting opacity, for controls that only matter on hover or focus. */
   dim?: boolean;
   bordered?: boolean;
+  /** Filled with the accent color, for the main action where a labelled button does not fit. */
+  primary?: boolean;
+  /** Highlighted while the control it toggles is open. */
+  active?: boolean;
 }) {
   const { styles, theme } = props;
   return (
@@ -78,13 +82,15 @@ export function IconButton(props: {
       onPress={props.onPress}
       style={({ hovered, pressed }: { hovered?: boolean; pressed: boolean }) => [
         styles.iconButton,
-        props.bordered ? { width: 32, height: 32, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface1, borderRadius: 8 } : null,
-        hovered || pressed ? { backgroundColor: theme.colors.surface2 } : null,
+        props.bordered || props.primary ? { width: 32, height: 32, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface1, borderRadius: 8 } : null,
+        hovered || pressed || props.active ? { backgroundColor: theme.colors.surface2 } : null,
+        props.active ? { borderColor: theme.colors.foregroundMuted } : null,
+        props.primary ? { backgroundColor: theme.colors.accent, borderColor: theme.colors.accent, opacity: hovered || pressed ? 0.88 : 1 } : null,
         props.dim && !hovered && !pressed ? { opacity: 0.55 } : null,
         props.disabled ? styles.buttonDisabled : null,
       ]}
     >
-      <Icon name={props.icon} size={15} color={theme.colors.foregroundMuted} />
+      <Icon name={props.icon} size={props.primary ? 16 : 15} color={props.primary ? theme.colors.accentForeground : props.active ? theme.colors.foreground : theme.colors.foregroundMuted} />
     </Pressable>
   );
 }

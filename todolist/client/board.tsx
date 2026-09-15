@@ -19,6 +19,41 @@ function CardGap() {
   return <View style={{ height: 8 }} />;
 }
 
+/** A column's cards. Each list scrolls on its own and only mounts the cards near its viewport. */
+function ColumnCards(props: {
+  styles: TodoStyles;
+  theme: PluginTheme;
+  column: BoardColumn<WorkItemView>;
+  renderCard: RenderCard;
+  drag: BoardDrag | null;
+  dropTarget: boolean;
+  contentStyle: ViewStyle;
+}) {
+  const { styles, theme, drag } = props;
+  return (
+    <FlatList
+      data={props.column.views}
+      keyExtractor={(view) => view.item.id}
+      style={{ flex: 1 }}
+      contentContainerStyle={props.contentStyle}
+      ItemSeparatorComponent={CardGap}
+      initialNumToRender={12}
+      windowSize={9}
+      extraData={drag?.draggingId}
+      renderItem={({ item: view }) => (
+        <View ref={drag?.cardRef(view.item.id)}>
+          {props.renderCard(
+            view,
+            drag ? <DragHandle styles={styles} theme={theme} handlers={drag.handle(view)} /> : undefined,
+            drag?.draggingId === view.item.id,
+          )}
+        </View>
+      )}
+      ListEmptyComponent={<Text style={styles.columnEmpty}>{props.dropTarget ? "Drop here" : "No items"}</Text>}
+    />
+  );
+}
+
 function Column(props: {
   styles: TodoStyles;
   theme: PluginTheme;
@@ -62,27 +97,7 @@ function Column(props: {
           />
         ) : null}
       </View>
-      {/* Each column scrolls on its own and only mounts the cards near its viewport. */}
-      <FlatList
-        data={column.views}
-        keyExtractor={(view) => view.item.id}
-        style={{ flex: 1 }}
-        contentContainerStyle={styles.columnBody}
-        ItemSeparatorComponent={CardGap}
-        initialNumToRender={12}
-        windowSize={9}
-        extraData={drag?.draggingId}
-        renderItem={({ item: view }) => (
-          <View ref={drag?.cardRef(view.item.id)}>
-            {props.renderCard(
-              view,
-              drag ? <DragHandle styles={styles} theme={theme} handlers={drag.handle(view)} /> : undefined,
-              drag?.draggingId === view.item.id,
-            )}
-          </View>
-        )}
-        ListEmptyComponent={<Text style={styles.columnEmpty}>{dropTarget ? "Drop here" : "No items"}</Text>}
-      />
+      <ColumnCards styles={styles} theme={theme} column={column} renderCard={props.renderCard} drag={drag} dropTarget={dropTarget} contentStyle={styles.columnBody} />
     </View>
   );
 }
@@ -117,32 +132,52 @@ export function TodoBoard(props: {
       style={style}
       renderCard={props.renderCard}
       onAdd={props.onAdd}
-      drag={layout === "tabs" ? null : drag}
+      drag={drag}
     />
   );
   if (layout === "tabs") {
-    const active = columns.find((entry) => entry.status === tab) ?? columns[0];
+    // Phones and narrow panels: the tabs already name the column and its count, so its cards sit
+    // straight on the page, and the column's "+" stays beside the tabs.
+    // Until a tab is picked, open the first column that has cards, so a filter never lands on an
+    // empty tab while others hold work.
+    const active = columns.find((entry) => entry.status === tab) ?? columns.find((entry) => entry.views.length > 0) ?? columns[0];
+    const add = active ? columnAddAction(active.status) : null;
+    const activeLabel = active ? WORK_ITEM_STATUS_LABELS[active.status] : "";
     return (
-      <View style={[styles.board, { gap: 8 }]}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 6 }}>
-          <View accessibilityRole="tablist" style={[styles.row, { gap: 6 }]}>
-            {columns.map((entry) => (
-              <Chip
-                key={entry.status}
-                styles={styles}
-                theme={theme}
-                label={WORK_ITEM_STATUS_LABELS[entry.status]}
-                trailing={String(entry.views.length)}
-                accessibilityLabel={`${WORK_ITEM_STATUS_LABELS[entry.status]}, ${entry.views.length}`}
-                icon={STATUS_PRESENTATION[entry.status].icon}
-                iconColor={theme.colors[STATUS_PRESENTATION[entry.status].color]}
-                selected={entry.status === active?.status}
-                onPress={() => setTab(entry.status)}
-              />
-            ))}
-          </View>
-        </ScrollView>
-        {active ? column(active, { flex: 1 }) : null}
+      <View style={[styles.board, { gap: 10 }]}>
+        <View style={[styles.row, { gap: 6 }]}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ gap: 6 }}>
+            <View accessibilityRole="tablist" style={[styles.row, { gap: 6 }]}>
+              {columns.map((entry) => (
+                <Chip
+                  key={entry.status}
+                  styles={styles}
+                  theme={theme}
+                  label={WORK_ITEM_STATUS_LABELS[entry.status]}
+                  trailing={String(entry.views.length)}
+                  accessibilityLabel={`${WORK_ITEM_STATUS_LABELS[entry.status]}, ${entry.views.length}`}
+                  icon={STATUS_PRESENTATION[entry.status].icon}
+                  iconColor={theme.colors[STATUS_PRESENTATION[entry.status].color]}
+                  selected={entry.status === active?.status}
+                  onPress={() => setTab(entry.status)}
+                />
+              ))}
+            </View>
+          </ScrollView>
+          {active && add ? (
+            <IconButton
+              styles={styles}
+              theme={theme}
+              icon="Plus"
+              bordered
+              label={add.kind === "create" ? `New item in ${activeLabel}` : `Add existing cards to ${activeLabel}`}
+              onPress={() => props.onAdd(active.status)}
+            />
+          ) : null}
+        </View>
+        {active ? (
+          <ColumnCards styles={styles} theme={theme} column={active} renderCard={props.renderCard} drag={null} dropTarget={false} contentStyle={{ paddingBottom: 16 }} />
+        ) : null}
       </View>
     );
   }

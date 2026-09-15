@@ -74,7 +74,8 @@ branch, which adds the two generic core extensions this plugin needs:
   - Done's "+" picks any number of cards from In review;
   - In review and Cancelled have no "+".
 - The board fills the surface: the toolbar stays put and each column scrolls its own cards, so a
-  long column never pushes the others off screen.
+  long column never pushes the others off screen. On phones the toolbar is one row, search opens
+  from its button, and one column at a time shows behind status tabs.
 - On wide boards, drag a card by its grip to another column; a copy of the card follows the pointer
   above the columns, and the row scrolls when you hold it near its edge. Phones and narrow panels use the move menu, which is also the keyboard and
   screen-reader way to move a card.

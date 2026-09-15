@@ -10,8 +10,8 @@ export function TodoSurface({ theme, host, layout, navigation }: PluginSurfacePr
       host={host}
       navigation={navigation}
       projectFilter={null}
+      projectFilterName={null}
       defaultWorkspaceId={null}
-      title="Todo"
     />
   );
 }

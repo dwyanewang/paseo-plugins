@@ -61,8 +61,9 @@ export function TodoScreen(props: {
   host: { id: string; label: string };
   navigation: Navigation;
   projectFilter: string | null;
+  /** The workspace panel's project name, shown before the project list has loaded. */
+  projectFilterName: string | null;
   defaultWorkspaceId: string | null;
-  title: string;
 }) {
   const { theme, compact } = props;
   const styles = useTodoStyles(theme, compact);
@@ -97,8 +98,9 @@ function TodoReady(props: {
   host: { id: string; label: string };
   navigation: Navigation;
   projectFilter: string | null;
+  /** The workspace panel's project name, shown before the project list has loaded. */
+  projectFilterName: string | null;
   defaultWorkspaceId: string | null;
-  title: string;
   styles: ReturnType<typeof useTodoStyles>;
   todo: TodoDocument;
   reload: () => Promise<void>;
@@ -167,7 +169,7 @@ function TodoReady(props: {
   const chosenProjectId = pickedProjectId ?? savedProjectId;
   const projectId: string | null =
     props.projectFilter ?? (chosenProjectId && projectOptions.some((option) => option.value === chosenProjectId) ? chosenProjectId : null);
-  const projectLabel = projectOptions.find((option) => option.value === (projectId ?? ""))?.label ?? "All projects";
+  const projectLabel = projectOptions.find((option) => option.value === (projectId ?? ""))?.label ?? props.projectFilterName ?? "All projects";
   const isProjectAvailable = (id: string) => projectCache.status !== "ready" || projectCache.projects.has(id);
   const canCreate = projectCache.status === "ready" && projectCache.projects.size > 0 && (projectId === null || isProjectAvailable(projectId));
 
@@ -484,7 +486,6 @@ function TodoReady(props: {
         styles={styles}
         theme={theme}
         compact={props.compact}
-        title={props.title}
         projectLabel={projectLabel}
         projectFiltered={projectId !== null}
         onPickProject={props.projectFilter ? null : () => setPickingProject(true)}
@@ -659,6 +660,7 @@ function TodoReady(props: {
         canLaunch={capability.available}
         projectAvailable={detailView ? isProjectAvailable(detailView.item.projectId) : true}
         now={now}
+        compact={props.compact}
       />
       <ConfirmModal
         styles={styles}

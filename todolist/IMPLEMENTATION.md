@@ -288,6 +288,13 @@ Requested after using the Phase I board. Plan addendum: "第三轮调整" in
   - list-style radio rows for projects, the picker and the move menu;
   - notices with icons.
 - [x] The trust notice left the board; the settings screen already shows it.
+- [x] Phone pass, after the user's Android screenshots:
+  - the toolbar drops the "Todo" title the host header already shows and fits one row: project and
+    filter pickers, a search toggle, Reload and New;
+  - the tabs layout shows cards straight on the page, with the column's "+" beside the tabs, and
+    opens the first column that has cards until a tab is picked;
+  - priority moved into the card's meta line on every layout;
+  - the card detail on phones shows Status and Priority as rows that open their choices in place.
 
 Tests: 123 unit tests (worktree run order and failure, branch naming, theme tone) and two E2E tests.
 The new E2E test cuts a real worktree and links the agent to it.
@@ -300,7 +307,9 @@ Verified in the web app against a fake-provider test daemon with a git project a
 - the editor, the move menu, the Done picker and the Archived list;
 - the execute dialog with New worktree and its branch fields;
 - the side-scrolling layout at 1100 px and tabs at 400 px;
-- the dark theme.
+- the dark theme;
+- after the phone pass, at 400 px: search, the filter picker, the default tab, and the detail's
+  property rows; the wide board and detail looked the same as before.
 
 ## Acceptance bus
 
