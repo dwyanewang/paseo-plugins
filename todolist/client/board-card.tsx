@@ -1,5 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
+import type { ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import { WORK_ITEM_STATUS_LABELS, formatRelativeTime, latestLink } from "../shared/board";
 import { Badge } from "./components";
@@ -17,6 +18,8 @@ export function BoardCard(props: {
   onOpenAgent: ((agentId: string) => void) | null;
   /** Outside the columns (the Archived list) the card names its column itself. */
   showStatus?: boolean;
+  /** Grip for pointer drag on wide boards. */
+  dragHandle?: ReactNode;
 }) {
   const { styles, theme, view, now } = props;
   const { item, aggregate, links } = view;
@@ -27,7 +30,8 @@ export function BoardCard(props: {
   // button inside a button on the web, which is invalid and misroutes clicks.
   return (
     <View style={styles.boardCard}>
-      <View style={styles.row}>
+      <View style={[styles.row, { alignItems: "flex-start", gap: 4 }]}>
+        {props.dragHandle}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`#${item.number} ${item.title}, ${WORK_ITEM_STATUS_LABELS[item.status]}, ${presentation.label}`}

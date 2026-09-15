@@ -2,15 +2,17 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { usePaseo, useRpc, useSettings, type PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Text, View } from "react-native";
 import {
   BOARD_COLUMN_WIDTH,
   WORK_ITEM_STATUS_LABELS,
   buildBoard,
+  dropPlacement,
   neighboursAt,
   resolveInProgressIntent,
   type BoardFilter,
+  type DropTarget,
 } from "../shared/board";
 import { documentStatus } from "../shared/contracts";
 import { todoPrefs } from "../shared/prefs";
@@ -220,6 +222,23 @@ function TodoReady(props: {
     },
     [moveCard, toast],
   );
+
+  /** A drop is a move with a position; into In progress it opens the same dialogs as the menu. */
+  function dropCard(view: WorkItemView, target: DropTarget) {
+    const column = board.columns.find((entry) => entry.status === target.status);
+    if (!column) return;
+    const neighbours = dropPlacement(
+      column.views.map((entry) => entry.item.id),
+      view.item.id,
+      view.item.status === target.status,
+      target.index,
+    );
+    if (!neighbours) return;
+    requestMove(view, target.status, {
+      expectedProjectOrderVersion: todo.projectOrderVersions[view.item.projectId] ?? 0,
+      ...neighbours,
+    });
+  }
 
   function shiftCard(view: WorkItemView, offset: -1 | 1) {
     if (!menuColumn || menuIndex < 0) return;
@@ -431,7 +450,7 @@ function TodoReady(props: {
     setEditor({ open: true, view: null, status: next });
   }
 
-  const renderCard = (view: WorkItemView, showStatus = false) => (
+  const renderCard = (view: WorkItemView, dragHandle?: ReactNode, showStatus = false) => (
     <BoardCard
       key={view.item.id}
       styles={styles}
@@ -439,6 +458,7 @@ function TodoReady(props: {
       view={view}
       now={now}
       showStatus={showStatus}
+      dragHandle={dragHandle}
       onOpen={(entry) => setDetailId(entry.item.id)}
       // An archived card has nothing to move; its menu is the detail with Restore and Purge.
       onMenu={(entry) => (entry.item.archivedAt ? setDetailId(entry.item.id) : setMenuId(entry.item.id))}
@@ -478,7 +498,7 @@ function TodoReady(props: {
           <Text style={styles.muted}>{projectCache.status === "loading" ? "Loading projects…" : "Open a project in Paseo to start its board."}</Text>
         ) : filter === "archived" ? (
           <View style={{ gap: styles.gap, maxWidth: BOARD_COLUMN_WIDTH * 2 }}>
-            {board.archived.map((view) => renderCard(view, true))}
+            {board.archived.map((view) => renderCard(view, undefined, true))}
             {board.archived.length === 0 ? <Text style={styles.muted}>No archived items.</Text> : null}
           </View>
         ) : (
@@ -490,6 +510,7 @@ function TodoReady(props: {
             width={width || (props.compact ? 0 : Number.MAX_SAFE_INTEGER)}
             renderCard={renderCard}
             onCreate={openEditor}
+            onDrop={dropCard}
           />
         )}
         <Text style={styles.mono}>{TEXT.trustNotice}</Text>

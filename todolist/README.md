@@ -56,7 +56,10 @@ branch, which adds the two generic core extensions this plugin needs:
   changes the underlying fact: the first request-start of a launch and an agent becoming active pull
   the card into In progress, and the last active agent finishing moves it to In review. Done and
   Cancelled only ever change by hand, and Execute is not offered there.
-- Moving a card into In progress by hand gets an agent working once you confirm:
+- On wide boards, drag a card by its grip to reorder it or move it to another column; the row
+  scrolls when you hold the card near its edge. Phones and narrow panels use the move menu, which is
+  also the keyboard and screen-reader way to move a card.
+- Moving a card into In progress by hand, by menu or by drag, gets an agent working once you confirm:
   - a finished, failed or closed agent can take a follow-up message;
   - an agent waiting for permission opens on its page;
   - with no agent, the execute dialog starts a new run.

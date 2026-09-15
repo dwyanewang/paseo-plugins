@@ -5,6 +5,8 @@ import {
   boardLayout,
   buildBoard,
   deriveAutoMove,
+  dropPlacement,
+  dropTargetAt,
   formatRelativeTime,
   latestLink,
   matchesSearch,
@@ -323,5 +325,35 @@ describe("moving a card into In progress", () => {
 
   it("does not trust stale or provider-less agents to take a message", () => {
     expect(intent([link("a", "waiting_confirmation", "1", { staleSince: "x" }), link("b", "unavailable", "2")])).toEqual({ kind: "execute" });
+  });
+});
+
+describe("pointer drop targets", () => {
+  const rect = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
+  const columns = [
+    { status: "todo" as const, rect: rect(0, 100, 240, 400), cards: [{ id: "a", rect: rect(10, 140, 220, 80) }, { id: "b", rect: rect(10, 230, 220, 80) }, { id: "c", rect: rect(10, 320, 220, 80) }] },
+    { status: "in_review" as const, rect: rect(252, 100, 240, 160), cards: [{ id: "d", rect: rect(262, 140, 220, 80) }] },
+  ];
+
+  it("picks the column under the pointer and counts the cards whose middle is above it", () => {
+    expect(dropTargetAt({ x: 100, y: 120 }, columns, "x")).toEqual({ status: "todo", index: 0 });
+    expect(dropTargetAt({ x: 100, y: 275 }, columns, "x")).toEqual({ status: "todo", index: 2 });
+    expect(dropTargetAt({ x: 300, y: 500 }, columns, "x")).toBeNull();
+    // Just below a short column still drops at its end.
+    expect(dropTargetAt({ x: 300, y: 270 }, columns, "x")).toEqual({ status: "in_review", index: 1 });
+    expect(dropTargetAt({ x: 246, y: 200 }, columns, "x")).toBeNull();
+  });
+
+  it("leaves the dragged card out of the count", () => {
+    expect(dropTargetAt({ x: 100, y: 400 }, columns, "a")).toEqual({ status: "todo", index: 2 });
+    expect(dropTargetAt({ x: 100, y: 200 }, columns, "a")).toEqual({ status: "todo", index: 0 });
+  });
+
+  it("turns a drop into neighbours, and a drop back into the same slot into nothing", () => {
+    expect(dropPlacement(["a", "b", "c"], "a", true, 0)).toBeNull();
+    expect(dropPlacement(["a", "b", "c"], "a", true, 2)).toEqual({ beforeId: "c" });
+    expect(dropPlacement(["a", "b", "c"], "c", true, 0)).toEqual({ afterId: "a" });
+    expect(dropPlacement(["d"], "a", false, 0)).toEqual({ afterId: "d" });
+    expect(dropPlacement([], "a", false, 0)).toEqual({});
   });
 });

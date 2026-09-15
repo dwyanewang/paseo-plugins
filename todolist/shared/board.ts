@@ -97,6 +97,60 @@ export function neighboursAt(ids: readonly string[], id: string, to: number): { 
 /** Narrow enough that the four active columns fit beside the host sidebar on a laptop screen. */
 export const BOARD_COLUMN_WIDTH = 240;
 
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface MeasuredColumn {
+  status: WorkItemStatus;
+  rect: Rect;
+  /** Cards in visual order, measured in the same coordinate space as `rect`. */
+  cards: { id: string; rect: Rect }[];
+}
+
+export interface DropTarget {
+  status: WorkItemStatus;
+  /** Slot among the column's cards with the dragged card left out. */
+  index: number;
+}
+
+/**
+ * The column and slot under a pointer. Columns match by horizontal position, with a vertical margin
+ * so dropping just below a short column still counts; the slot is the number of other cards whose
+ * middle lies above the pointer.
+ */
+export function dropTargetAt(
+  point: { x: number; y: number },
+  columns: readonly MeasuredColumn[],
+  draggedId: string,
+  margin = 24,
+): DropTarget | null {
+  const column = columns.find(
+    ({ rect }) =>
+      point.x >= rect.x &&
+      point.x <= rect.x + rect.width &&
+      point.y >= rect.y - margin &&
+      point.y <= rect.y + rect.height + margin,
+  );
+  if (!column) return null;
+  const index = column.cards.filter((card) => card.id !== draggedId && card.rect.y + card.rect.height / 2 < point.y).length;
+  return { status: column.status, index };
+}
+
+/** Neighbours for a drop, or null when the card would land exactly where it already is. */
+export function dropPlacement(
+  targetIds: readonly string[],
+  draggedId: string,
+  sameColumn: boolean,
+  index: number,
+): { beforeId?: string; afterId?: string } | null {
+  if (sameColumn && targetIds.indexOf(draggedId) === index) return null;
+  return neighboursAt(targetIds, draggedId, index);
+}
+
 /**
  * `columns` when every column fits side by side, `scroll` when at least two fit and the row scrolls
  * horizontally, `tabs` (one column at a time) below that.

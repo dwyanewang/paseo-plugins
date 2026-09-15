@@ -180,7 +180,30 @@ Normative source: `/home/yangfei/Private/Dw-Plans/paseo-todo-kanban-plan.md`, br
   Observation, predating stage 3: while an agent's first snapshots arrived out of order, R2/R3
   briefly bounced a card In review → In progress → In review within 30 ms. The final state was
   correct.
-- [ ] Stage 4: drag and drop on wide layouts
+- [x] Stage 4, drag and drop on wide layouts (`client/board-dnd.tsx`):
+  - a grip on each card (hidden from assistive technology, where the move menu stays the way in)
+    claims the pointer;
+  - card and column rects are measured in window coordinates when a card is grabbed;
+  - the card is translated in place while the target column gets an accent border and an
+    insertion line;
+  - the scrolling row auto-scrolls near its edges, clamped to the column extent measured at grab
+    time;
+  - a drop becomes a move with neighbours, so dropping into In progress opens the same dialogs as
+    the menu;
+  - narrow layouts have no grip.
+
+  Tests: `dropTargetAt` and `dropPlacement` in `test/board.test.ts`.
+
+  V4 verified in the web app against a fake-provider test daemon, with stepped Playwright pointer
+  moves:
+  - reordering within a column;
+  - moving to the end of another column;
+  - a drop into In progress opening the Continue dialog;
+  - auto-scroll to Cancelled under All;
+  - a grip click doing nothing while a card click still opens its detail;
+  - no grips at phone width.
+
+  That pass fixed a runaway auto-scroll: the translated card kept widening the scrollable content.
 - [ ] Stage 5: docs, benchmark, smoke flows, data backup before deploy
 
 ## Acceptance bus
