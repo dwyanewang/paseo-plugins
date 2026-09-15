@@ -102,6 +102,28 @@ now gates the composer hand-off alone.
 - [x] Tests: `test/launch-defaults.test.ts` (9), `test/run.test.ts` (3), and the E2E preference
       round trip across a plugin reload.
 
+## Phase H — board view (in progress)
+
+Normative source: `/home/yangfei/Private/Dw-Plans/paseo-todo-kanban-plan.md`, branch
+`feat/todo-kanban`.
+
+- [x] Stage 1, data and rules:
+  - `todo-data` version 2 with six statuses, `number`, `statusChangedAt`, `statusReason` and
+    `nextWorkItemNumber`, plus the version 1 migration;
+  - `todo.work-items.move` (last-writer-wins, best-effort placement) replaces `set-status`;
+  - create takes an initial status;
+  - acquire refuses Done and Cancelled;
+  - automatic moves R1–R3 with `auto_move` logs;
+  - the list UI shows the status and maps Mark done / Reopen onto moves.
+
+  Tests: `test/board.test.ts` (14), `test/migration.test.ts` (5), move, number and acquire cases in
+  `test/mutations.test.ts`, one reconciler path, and the E2E launch → In progress → In review →
+  move flow. A dry run on a copy of the live document migrated both open items to In review.
+- [ ] Stage 2: board UI
+- [ ] Stage 3: drag to In progress runs or continues the agent
+- [ ] Stage 4: drag and drop on wide layouts
+- [ ] Stage 5: docs, benchmark, smoke flows, data backup before deploy
+
 ## Acceptance bus
 
 - [x] 1. Core has no Todo naming or second storage system

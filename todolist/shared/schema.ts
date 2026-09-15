@@ -1,5 +1,6 @@
 import { defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
+import { migrateTodoDocument } from "./migrate";
 
 /**
  * Persistent Todo document. The Settings definition version is the only schema version; the
@@ -7,15 +8,31 @@ import { z } from "zod";
  * memory by the server.
  */
 export const TODO_SETTINGS_ID = "todo-data";
-export const TODO_SETTINGS_VERSION = 1;
+export const TODO_SETTINGS_VERSION = 2;
 
-export const WorkItemStatusSchema = z.enum(["open", "done"]);
+/** Board columns, in display order. */
+export const WORK_ITEM_STATUSES = ["backlog", "todo", "in_progress", "in_review", "done", "cancelled"] as const;
+export const WorkItemStatusSchema = z.enum(WORK_ITEM_STATUSES);
 export type WorkItemStatus = z.infer<typeof WorkItemStatusSchema>;
+
+/** Why the status last changed; automatic moves name the event that caused them. */
+export const StatusReasonSchema = z.enum([
+  "created",
+  "manual",
+  "launch_started",
+  "agent_active",
+  "agent_finished",
+  "migration",
+]);
+export type StatusReason = z.infer<typeof StatusReasonSchema>;
 
 export const WorkItemSchema = z.object({
   id: z.string().min(1),
   creationFingerprint: z.string().min(1),
+  /** Content version for edits. Status and position moves deliberately do not bump it. */
   version: z.number().int().positive(),
+  /** Host-wide display number (`#12`); never reused and kept across project rebinds. */
+  number: z.number().int().positive(),
   projectId: z.string().min(1),
   projectNameSnapshot: z.string(),
   projectRootSnapshot: z.string().optional(),
@@ -23,6 +40,8 @@ export const WorkItemSchema = z.object({
   details: z.string(),
   defaultPrompt: z.string(),
   status: WorkItemStatusSchema,
+  statusChangedAt: z.string(),
+  statusReason: StatusReasonSchema,
   rank: z.string().min(1),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -142,6 +161,7 @@ export const TodoDocumentSchema = z.object({
   /** Empty until the server initializes the document; regenerated on explicit reset. */
   incarnationId: z.string().default(""),
   seq: z.number().int().nonnegative().default(0),
+  nextWorkItemNumber: z.number().int().positive().default(1),
   projectOrderVersions: z.record(z.string(), z.number().int().nonnegative()).default({}),
   workItems: z.record(z.string(), WorkItemSchema).default({}),
   claims: z.record(z.string(), LaunchClaimSchema).default({}),
@@ -157,6 +177,7 @@ export const todoData = defineSettings({
   scope: "host",
   version: TODO_SETTINGS_VERSION,
   schema: TodoDocumentSchema,
+  migrate: migrateTodoDocument,
 });
 
 export function emptyTodoDocument(): TodoDocument {

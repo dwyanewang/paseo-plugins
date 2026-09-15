@@ -9,12 +9,12 @@ import {
   documentStatus,
   ensureDocument,
   forgetAttempt,
+  moveWorkItem,
   purgeWorkItem,
   rebindWorkItemProject,
   reorderWorkItem,
   reportLaunchProgress,
   setWorkItemArchived,
-  setWorkItemStatus,
   updateWorkItem,
   type TodoError,
 } from "../shared/contracts";
@@ -25,12 +25,12 @@ import {
   createWorkItemMutation,
   forgetAttemptMutation,
   linksForWorkItem,
+  moveWorkItemMutation,
   purgeWorkItemMutation,
   rebindWorkItemProjectMutation,
   reorderWorkItemMutation,
   reportLaunchProgressMutation,
   setWorkItemArchivedMutation,
-  setWorkItemStatusMutation,
   updateWorkItemMutation,
 } from "./mutations";
 import type { TodoReconciler } from "./reconcile";
@@ -129,9 +129,9 @@ export function registerTodoHandlers(deps: HandlerDeps): void {
     return { status: "ok" as const, ...outcome.result, seq: outcome.seq };
   });
 
-  server.handle(setWorkItemStatus, async (input) => {
-    const outcome = await run("work-items.set-status", input.expectedIncarnationId, "user", (document, now) =>
-      setWorkItemStatusMutation(document, input, now),
+  server.handle(moveWorkItem, async (input) => {
+    const outcome = await run("work-items.move", input.expectedIncarnationId, "user", (document, now) =>
+      moveWorkItemMutation(document, input, now),
     );
     if (outcome.status !== "ok") return outcome;
     return { status: "ok" as const, ...outcome.result, seq: outcome.seq };
@@ -187,13 +187,23 @@ export function registerTodoHandlers(deps: HandlerDeps): void {
     );
     if (outcome.status !== "ok") return outcome;
     if (input.agentId) reconciler.enqueueRefresh(input.agentId, "progress_agent_created");
+    const { autoMove, ...result } = outcome.result;
     log.info("launch_progress", {
       attemptId: input.attemptId,
       facet: input.facet,
       factVersion: input.factVersion,
       changed: outcome.seq,
     });
-    return { status: "ok" as const, ...outcome.result, seq: outcome.seq };
+    if (autoMove) {
+      log.info("auto_move", {
+        workItemId: result.attempt.workItemId,
+        attemptId: input.attemptId,
+        from: autoMove.from,
+        to: autoMove.to,
+        reason: autoMove.reason,
+      });
+    }
+    return { status: "ok" as const, ...result, seq: outcome.seq };
   });
 
   server.handle(abandonLaunch, async (input) => {

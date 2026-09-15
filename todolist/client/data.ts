@@ -87,7 +87,7 @@ export function groupByProject(views: Iterable<WorkItemView>): Map<string, Proje
       archived: [],
     };
     if (view.item.archivedAt) group.archived.push(view);
-    else if (view.item.status === "done") group.done.push(view);
+    else if (view.item.status === "done" || view.item.status === "cancelled") group.done.push(view);
     else group.open.push(view);
     groups.set(view.item.projectId, group);
   }

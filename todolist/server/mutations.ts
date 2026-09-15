@@ -4,14 +4,15 @@ import type {
   acquireLaunch,
   createWorkItem,
   forgetAttempt,
+  moveWorkItem,
   purgeWorkItem,
   rebindWorkItemProject,
   reorderWorkItem,
   reportLaunchProgress,
   setWorkItemArchived,
-  setWorkItemStatus,
   updateWorkItem,
 } from "../shared/contracts";
+import { deriveAutoMove, withStatus, type AutoMove } from "../shared/board";
 import {
   abandonAttempt,
   isAttemptNotSubmitted,
@@ -35,6 +36,7 @@ import type {
   LaunchClaim,
   TodoDocument,
   WorkItem,
+  WorkItemStatus,
 } from "../shared/schema";
 import { aggregateWorkItem, isActiveDisplayState } from "../shared/state";
 import type { MutationError, MutationOutcome } from "./store";
@@ -90,6 +92,50 @@ export function linksForWorkItem(document: TodoDocument, workItemId: string): Ag
   return Object.values(document.agentLinks).filter((link) => link.workItemId === workItemId);
 }
 
+function boardFacts(document: TodoDocument, item: WorkItem) {
+  const aggregate = aggregateWorkItem({
+    item,
+    claim: document.claims[item.id],
+    attempts: attemptsForWorkItem(document, item.id),
+    links: linksForWorkItem(document, item.id),
+  });
+  return {
+    busy: aggregate.activeAgentIds.length > 0,
+    launchSettled: aggregate.pendingClaim === null && aggregate.unknownAttemptIds.length === 0,
+  };
+}
+
+/**
+ * Folds the agent-driven board moves into a snapshot write that is already committing: `before`
+ * is the document the mutation started from, `after` its result. Returns `after` unchanged when
+ * no move applies, so the move never costs a write of its own.
+ */
+export function withAgentAutoMove(
+  before: TodoDocument,
+  after: TodoDocument,
+  input: { workItemId: string; agentFinished: boolean },
+  now: string,
+): { document: TodoDocument; autoMove: AutoMove | null } {
+  const previous = before.workItems[input.workItemId];
+  const item = after.workItems[input.workItemId];
+  if (!previous || !item) return { document: after, autoMove: null };
+  const was = boardFacts(before, previous);
+  const is = boardFacts(after, item);
+  const autoMove = deriveAutoMove(item.status, {
+    kind: "agent_observed",
+    busyBefore: was.busy,
+    busyAfter: is.busy,
+    agentFinished: input.agentFinished,
+    launchSettled: is.launchSettled,
+  });
+  if (!autoMove) return { document: after, autoMove: null };
+  const workItem = withStatus(item, autoMove.to, autoMove.reason, now);
+  return {
+    document: { ...after, workItems: { ...after.workItems, [workItem.id]: workItem } },
+    autoMove,
+  };
+}
+
 export function createWorkItemMutation(
   document: TodoDocument,
   input: Input<typeof createWorkItem>,
@@ -113,25 +159,31 @@ export function createWorkItemMutation(
   if (invalid) return fieldError(invalid);
   const rank = rankBetween(lastRank(document, input.projectId), undefined);
   if (!rank) return error("invalid_input", "Could not allocate a rank.");
+  const status = input.status ?? "todo";
   const workItem: WorkItem = {
     id: input.id,
     creationFingerprint: input.creationFingerprint,
     version: 1,
+    number: document.nextWorkItemNumber,
     projectId: input.projectId,
     projectNameSnapshot: input.projectNameSnapshot,
     ...(input.projectRootSnapshot ? { projectRootSnapshot: input.projectRootSnapshot } : {}),
     title: input.title.trim(),
     details: input.details,
     defaultPrompt: input.defaultPrompt,
-    status: "open",
+    status,
+    statusChangedAt: now,
+    statusReason: "created",
     rank,
     createdAt: now,
     updatedAt: now,
+    ...(status === "done" ? { completedAt: now } : {}),
   };
   return {
     status: "commit",
     values: {
       ...document,
+      nextWorkItemNumber: document.nextWorkItemNumber + 1,
       workItems: { ...document.workItems, [workItem.id]: workItem },
       projectOrderVersions: bumpOrder(document.projectOrderVersions, input.projectId),
     },
@@ -199,6 +251,28 @@ export function reorderWorkItemMutation(
       currentProjectOrderVersion: currentOrder,
     });
   }
+  const placement = placeInProject(document, item, input.beforeId, input.afterId);
+  if ("status" in placement) return placement;
+  const workItem = touched(item, now, { rank: placement.rank });
+  const workItems = { ...document.workItems, ...placement.rebalanced, [workItem.id]: workItem };
+  const projectOrderVersions = bumpOrder(document.projectOrderVersions, item.projectId);
+  return {
+    status: "commit",
+    values: { ...document, workItems, projectOrderVersions },
+    result: { workItem, projectOrderVersion: projectOrderVersions[item.projectId]! },
+  };
+}
+
+/**
+ * Rank for `item` between two neighbours of its project. When the gap is exhausted the project is
+ * rebalanced; `rebalanced` holds the other items whose rank changed, for the same update.
+ */
+function placeInProject(
+  document: TodoDocument,
+  item: WorkItem,
+  beforeId: string | undefined,
+  afterId: string | undefined,
+): { rank: string; rebalanced: Record<string, WorkItem> } | MutationError {
   const neighbour = (id: string | undefined): WorkItem | MutationError | undefined => {
     if (id === undefined) return undefined;
     const found = document.workItems[id];
@@ -207,43 +281,30 @@ export function reorderWorkItemMutation(
     }
     return found;
   };
-  const before = neighbour(input.beforeId);
+  const before = neighbour(beforeId);
   if (before && isError(before)) return before;
-  const after = neighbour(input.afterId);
+  const after = neighbour(afterId);
   if (after && isError(after)) return after;
   if (before && after && compareRanks(before.rank, after.rank) >= 0) {
     return error("invalid_input", "Reorder neighbours are not adjacent in that order.");
   }
   const rank = rankBetween(before?.rank, after?.rank);
-  const workItems = { ...document.workItems };
-  let workItem: WorkItem;
-  if (rank) {
-    workItem = touched(item, now, { rank });
-    workItems[workItem.id] = workItem;
-  } else {
-    // Gap exhausted: rebalance the project inside the same update.
-    const ordered = projectItems(document, item.projectId).filter((entry) => entry.id !== item.id);
-    const index = after
-      ? ordered.findIndex((entry) => entry.id === after.id)
-      : before
-        ? ordered.findIndex((entry) => entry.id === before.id) + 1
-        : 0;
-    ordered.splice(index < 0 ? ordered.length : index, 0, item);
-    const ranks = rebalancedRanks(ordered.map((entry) => entry.id));
-    for (const entry of ordered) {
-      const next = ranks.get(entry.id)!;
-      if (entry.id === item.id) continue;
-      if (entry.rank !== next) workItems[entry.id] = { ...entry, rank: next };
-    }
-    workItem = touched(item, now, { rank: ranks.get(item.id)! });
-    workItems[workItem.id] = workItem;
+  if (rank) return { rank, rebalanced: {} };
+  // Gap exhausted: rebalance the project inside the same update.
+  const ordered = projectItems(document, item.projectId).filter((entry) => entry.id !== item.id);
+  const index = after
+    ? ordered.findIndex((entry) => entry.id === after.id)
+    : before
+      ? ordered.findIndex((entry) => entry.id === before.id) + 1
+      : 0;
+  ordered.splice(index < 0 ? ordered.length : index, 0, item);
+  const ranks = rebalancedRanks(ordered.map((entry) => entry.id));
+  const rebalanced: Record<string, WorkItem> = {};
+  for (const entry of ordered) {
+    const next = ranks.get(entry.id)!;
+    if (entry.id !== item.id && entry.rank !== next) rebalanced[entry.id] = { ...entry, rank: next };
   }
-  const projectOrderVersions = bumpOrder(document.projectOrderVersions, item.projectId);
-  return {
-    status: "commit",
-    values: { ...document, workItems, projectOrderVersions },
-    result: { workItem, projectOrderVersion: projectOrderVersions[item.projectId]! },
-  };
+  return { rank: ranks.get(item.id)!, rebalanced };
 }
 
 export function rebindWorkItemProjectMutation(
@@ -274,21 +335,34 @@ export function rebindWorkItemProjectMutation(
   };
 }
 
-export function setWorkItemStatusMutation(
+export function moveWorkItemMutation(
   document: TodoDocument,
-  input: Input<typeof setWorkItemStatus>,
+  input: Input<typeof moveWorkItem>,
   now: string,
-): MutationOutcome<{ workItem: WorkItem }> {
-  const item = requireVersioned(document, input.id, input.expectedVersion);
-  if (isError(item)) return item;
-  if (item.status === input.status) return { status: "unchanged", result: { workItem: item } };
-  const workItem = touched(item, now, { status: input.status });
-  if (input.status === "done") workItem.completedAt = now;
-  else delete workItem.completedAt;
+): MutationOutcome<{ workItem: WorkItem; previousStatus: WorkItemStatus; placed: boolean }> {
+  const item = document.workItems[input.id];
+  if (!item) return error("not_found", "The work item no longer exists.");
+  const previousStatus = item.status;
+  let workItem = item.status === input.status ? item : withStatus(item, input.status, "manual", now);
+  let workItems = document.workItems;
+  let projectOrderVersions = document.projectOrderVersions;
+  let placed = false;
+  const expectedOrder = input.placement?.expectedProjectOrderVersion;
+  if (input.placement && expectedOrder === (document.projectOrderVersions[item.projectId] ?? 0)) {
+    // Neighbours that moved or vanished since the drag started are not an error: the move stands.
+    const placement = placeInProject(document, item, input.placement.beforeId, input.placement.afterId);
+    if (!("status" in placement)) {
+      workItem = { ...workItem, rank: placement.rank };
+      workItems = { ...workItems, ...placement.rebalanced };
+      projectOrderVersions = bumpOrder(projectOrderVersions, item.projectId);
+      placed = true;
+    }
+  }
+  if (workItem === item) return { status: "unchanged", result: { workItem, previousStatus, placed } };
   return {
     status: "commit",
-    values: { ...document, workItems: { ...document.workItems, [workItem.id]: workItem } },
-    result: { workItem },
+    values: { ...document, workItems: { ...workItems, [workItem.id]: workItem }, projectOrderVersions },
+    result: { workItem, previousStatus, placed },
   };
 }
 
@@ -407,7 +481,9 @@ export function acquireLaunchMutation(
     }
     return { status: "unchanged", result: { attempt: existingAttempt, claim, created: false } };
   }
-  if (item.status !== "open") return error("invalid_transition", "Reopen the work item first.");
+  if (item.status === "done" || item.status === "cancelled") {
+    return error("invalid_transition", "Move the work item out of Done or Cancelled first.");
+  }
   if (item.archivedAt) return error("invalid_transition", "Restore the work item first.");
   if (!input.projectAvailable) {
     return error("project_unavailable", "The project is unavailable. Rebind the work item first.");
@@ -488,7 +564,7 @@ export function reportLaunchProgressMutation(
   document: TodoDocument,
   input: Input<typeof reportLaunchProgress>,
   now: string,
-): MutationOutcome<{ attempt: Attempt; claim?: LaunchClaim }> {
+): MutationOutcome<{ attempt: Attempt; claim?: LaunchClaim; autoMove?: AutoMove }> {
   const attempt = document.attempts[input.attemptId];
   if (!attempt) return error("not_found", "The attempt no longer exists.");
   if (attempt.claimGeneration !== input.generation) {
@@ -528,16 +604,33 @@ export function reportLaunchProgressMutation(
   if (!joined.changed && nextClaim === claim) {
     return { status: "unchanged", result: { attempt, ...(claim ? { claim } : {}) } };
   }
+  // The first request-start of the current launch moves the card; later milestones do not.
+  const requestStarted = (entry: Attempt) => Boolean(entry.workspaceRequestStartedAt || entry.agentRequestStartedAt);
+  const item = document.workItems[attempt.workItemId];
+  const currentLaunch = claim?.attemptId === attempt.id && claim.generation === attempt.claimGeneration;
+  const autoMove =
+    item && currentLaunch && !requestStarted(attempt) && requestStarted(joined.attempt)
+      ? deriveAutoMove(item.status, { kind: "launch_started" })
+      : null;
+  const workItems =
+    item && autoMove
+      ? { ...document.workItems, [item.id]: withStatus(item, autoMove.to, autoMove.reason, now) }
+      : document.workItems;
   return {
     status: "commit",
     values: {
       ...document,
+      workItems,
       attempts: { ...document.attempts, [attempt.id]: joined.attempt },
       ...(nextClaim && nextClaim !== claim
         ? { claims: { ...document.claims, [attempt.workItemId]: nextClaim } }
         : {}),
     },
-    result: { attempt: joined.attempt, ...(nextClaim ? { claim: nextClaim } : {}) },
+    result: {
+      attempt: joined.attempt,
+      ...(nextClaim ? { claim: nextClaim } : {}),
+      ...(autoMove ? { autoMove } : {}),
+    },
     kind: "recovery",
   };
 }

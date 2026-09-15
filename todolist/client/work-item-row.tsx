@@ -3,7 +3,8 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { isAttemptNotSubmitted, isAttemptOutcomeUnknown, isAttemptSettled, stageCertainty } from "../shared/attempt";
-import type { AgentLink, Attempt } from "../shared/schema";
+import { WORK_ITEM_STATUS_LABELS } from "../shared/board";
+import type { AgentLink, Attempt, WorkItemStatus } from "../shared/schema";
 import { Badge, Button } from "./components";
 import type { WorkItemView } from "./data";
 import { getKnownClientInstanceId } from "./launch";
@@ -18,7 +19,7 @@ export interface RowActions {
   forget: (view: WorkItemView, attempt: Attempt) => void;
   check: (view: WorkItemView) => void;
   edit: (view: WorkItemView) => void;
-  setStatus: (view: WorkItemView, status: "open" | "done") => void;
+  move: (view: WorkItemView, status: WorkItemStatus) => void;
   setArchived: (view: WorkItemView, archived: boolean) => void;
   purge: (view: WorkItemView) => void;
   rebind: (view: WorkItemView) => void;
@@ -141,7 +142,8 @@ export function WorkItemRow(props: {
   const { item, aggregate } = view;
   const presentation = AGGREGATE_PRESENTATION[aggregate.state];
   const archived = Boolean(item.archivedAt);
-  const done = item.status === "done";
+  const done = item.status === "done" || item.status === "cancelled";
+  const statusLabel = WORK_ITEM_STATUS_LABELS[item.status];
   const blocked = aggregate.blockedReason;
   const executeDisabled = archived || done || blocked !== null || !props.projectAvailable;
   const executeHint =
@@ -157,7 +159,7 @@ export function WorkItemRow(props: {
   const unknownPending = aggregate.unknownAttemptIds.length > 0 && aggregate.pendingClaim !== null;
   const checking = actions.checkingId === item.id;
   return (
-    <View style={styles.card} accessibilityLabel={`Work item ${item.title}, ${presentation.label}`}>
+    <View style={styles.card} accessibilityLabel={`Work item #${item.number} ${item.title}, ${statusLabel}, ${presentation.label}`}>
       <View style={styles.row}>
         {props.dragHandle}
         <Pressable
@@ -172,6 +174,7 @@ export function WorkItemRow(props: {
             {item.title}
           </Text>
         </Pressable>
+        <Text style={styles.muted}>{statusLabel}</Text>
         <Badge styles={styles} theme={theme} label={presentation.label} icon={presentation.icon} tone={presentation.tone} />
       </View>
       {!expanded && aggregate.pendingClaim ? (
@@ -189,7 +192,7 @@ export function WorkItemRow(props: {
               <Button styles={styles} theme={theme} label="Execute" icon="Play" variant="primary" disabled={executeDisabled} accessibilityHint={executeHint} onPress={() => actions.execute(view)} />
             ) : null}
             {!archived ? (
-              <Button styles={styles} theme={theme} label={done ? "Reopen" : "Mark done"} icon={done ? "RotateCcw" : "Check"} onPress={() => actions.setStatus(view, done ? "open" : "done")} accessibilityHint="Manual completion; agents and workspaces are not changed" />
+              <Button styles={styles} theme={theme} label={done ? "Reopen" : "Mark done"} icon={done ? "RotateCcw" : "Check"} onPress={() => actions.move(view, done ? "todo" : "done")} accessibilityHint="Manual completion; agents and workspaces are not changed" />
             ) : (
               <Button styles={styles} theme={theme} label="Restore" icon="ArchiveRestore" onPress={() => actions.setArchived(view, false)} />
             )}

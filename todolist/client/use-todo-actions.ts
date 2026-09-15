@@ -9,18 +9,18 @@ import {
   createWorkItem,
   ensureDocument,
   forgetAttempt,
+  moveWorkItem,
   purgeWorkItem,
   rebindWorkItemProject,
   reorderWorkItem,
   reportLaunchProgress,
   setWorkItemArchived,
-  setWorkItemStatus,
   updateWorkItem,
   type TodoError,
 } from "../shared/contracts";
 import { computeCreationFingerprint } from "../shared/fingerprint";
 import { createId } from "../shared/ids";
-import type { WorkItem } from "../shared/schema";
+import type { WorkItem, WorkItemStatus } from "../shared/schema";
 import { describeTodoError, useTodoInvalidate } from "./data";
 import type { LaunchRpcs } from "./launch";
 
@@ -33,7 +33,7 @@ export interface TodoActions {
   ensure: () => Promise<Output<typeof ensureDocument>>;
   create: (input: { projectId: string; projectNameSnapshot: string; projectRootSnapshot?: string; title: string; details: string; defaultPrompt: string }) => Promise<WorkItem | null>;
   update: (item: WorkItem, patch: { title?: string; details?: string; defaultPrompt?: string }) => Promise<boolean>;
-  setStatus: (item: WorkItem, status: "open" | "done") => Promise<boolean>;
+  move: (item: WorkItem, status: WorkItemStatus) => Promise<boolean>;
   setArchived: (item: WorkItem, archived: boolean) => Promise<boolean>;
   purge: (item: WorkItem, force: boolean) => Promise<boolean>;
   rebind: (item: WorkItem, project: { projectId: string; projectNameSnapshot: string; projectRootSnapshot?: string }) => Promise<boolean>;
@@ -58,7 +58,7 @@ export function useTodoActions(input: { incarnationId: string; reload: () => Pro
   const rpcUpdate = useRpc(updateWorkItem);
   const rpcReorder = useRpc(reorderWorkItem);
   const rpcRebind = useRpc(rebindWorkItemProject);
-  const rpcStatus = useRpc(setWorkItemStatus);
+  const rpcMove = useRpc(moveWorkItem);
   const rpcArchived = useRpc(setWorkItemArchived);
   const rpcPurge = useRpc(purgeWorkItem);
   const rpcAcquire = useRpc(acquireLaunch);
@@ -115,8 +115,8 @@ export function useTodoActions(input: { incarnationId: string; reload: () => Pro
         const result = await finish(rpcUpdate({ expectedIncarnationId: incarnationId, id: item.id, expectedVersion: item.version, patch }));
         return result?.status === "ok";
       },
-      async setStatus(item, status) {
-        const result = await finish(rpcStatus({ expectedIncarnationId: incarnationId, id: item.id, expectedVersion: item.version, status }));
+      async move(item, status) {
+        const result = await finish(rpcMove({ expectedIncarnationId: incarnationId, id: item.id, status }));
         return result?.status === "ok";
       },
       async setArchived(item, archived) {
@@ -161,6 +161,6 @@ export function useTodoActions(input: { incarnationId: string; reload: () => Pro
         return { checkedAgentCount: result.enqueuedAgentIds.length, linkedAgentCount: result.links.length };
       },
     }),
-    [finish, incarnationId, reload, rpcAbandon, rpcAcquire, rpcArchived, rpcCheck, rpcCreate, rpcEnsure, rpcForget, rpcProgress, rpcPurge, rpcRebind, rpcReorder, rpcStatus, rpcUpdate],
+    [finish, incarnationId, reload, rpcAbandon, rpcAcquire, rpcArchived, rpcCheck, rpcCreate, rpcEnsure, rpcForget, rpcMove, rpcProgress, rpcPurge, rpcRebind, rpcReorder, rpcUpdate],
   );
 }

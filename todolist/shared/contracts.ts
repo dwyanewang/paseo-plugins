@@ -83,6 +83,8 @@ export const createWorkItem = defineRpc({
     title: z.string(),
     details: z.string(),
     defaultPrompt: z.string(),
+    /** Initial column; defaults to To do. Not part of the creation fingerprint. */
+    status: WorkItemStatusSchema.optional(),
   }),
   output: result({ workItem: WorkItemSchema, seq: z.number().int(), created: z.boolean() }),
 });
@@ -132,15 +134,31 @@ export const rebindWorkItemProject = defineRpc({
   output: result({ workItem: WorkItemSchema, seq: z.number().int() }),
 });
 
-export const setWorkItemStatus = defineRpc({
-  name: "todo.work-items.set-status",
+/**
+ * Moves a card to a column. Last writer wins: there is no version check, and `previousStatus`
+ * tells the client where the card really was. A drop position is best effort; when the project
+ * order changed meanwhile, the card keeps its rank and `placed` is false.
+ */
+export const moveWorkItem = defineRpc({
+  name: "todo.work-items.move",
   input: z.object({
     ...fenced,
     id: z.string().min(1),
-    expectedVersion: z.number().int().positive(),
     status: WorkItemStatusSchema,
+    placement: z
+      .object({
+        expectedProjectOrderVersion: z.number().int().nonnegative(),
+        beforeId: z.string().optional(),
+        afterId: z.string().optional(),
+      })
+      .optional(),
   }),
-  output: result({ workItem: WorkItemSchema, seq: z.number().int() }),
+  output: result({
+    workItem: WorkItemSchema,
+    previousStatus: WorkItemStatusSchema,
+    placed: z.boolean(),
+    seq: z.number().int(),
+  }),
 });
 
 export const setWorkItemArchived = defineRpc({
@@ -272,7 +290,7 @@ export const todoRpcs = {
   updateWorkItem,
   reorderWorkItem,
   rebindWorkItemProject,
-  setWorkItemStatus,
+  moveWorkItem,
   setWorkItemArchived,
   purgeWorkItem,
   acquireLaunch,

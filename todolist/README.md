@@ -17,7 +17,9 @@ branch, which adds the two generic core extensions this plugin needs:
 
 | Path | Owns |
 | --- | --- |
-| `shared/schema.ts` | Settings document (`todo-data`, version 1): work items, claims, attempts, agent links, retired IDs. |
+| `shared/schema.ts` | Settings document (`todo-data`, version 2): work items with board status and number, claims, attempts, agent links, retired IDs. |
+| `shared/migrate.ts` | Version 1 → 2 migration: open items land in To do, In progress or In review by their agents; numbers follow creation order. |
+| `shared/board.ts` | Status labels and the automatic board moves (`deriveAutoMove`). Moves never bump the content `version`. |
 | `shared/prefs.ts` | Second settings document (`todo-prefs`, version 1): launch mode, model, mode, thinking, and last-used workspace per project. Client-written; no business data. |
 | `shared/contracts.ts` | Typed RPCs. Every mutation carries `expectedIncarnationId`; errors are stable codes. |
 | `shared/attempt.ts`, `shared/state.ts` | Field-level lattice joins for attempt facts; canonical state mirror and aggregation. |
@@ -48,6 +50,13 @@ branch, which adds the two generic core extensions this plugin needs:
   catalog as agent profiles. Successful launches remember the choices across clients and reloads.
   Each project remembers its own workspace; a saved workspace takes precedence over the current
   panel, and an unavailable workspace falls back to the current panel or an available target.
+- Each item has a board status: Backlog, To do, In progress, In review, Done or Cancelled. Manual
+  moves are last-writer-wins. Three moves are automatic, and each fires only on the write that
+  changes the underlying fact: the first request-start of a launch and an agent becoming active pull
+  the card into In progress, and the last active agent finishing moves it to In review. Done and
+  Cancelled only ever change by hand, and Execute is not offered there.
+- Upgrading from `todo-data` version 1 migrates the document once. An older plugin build cannot read
+  version 2, so back up `~/.paseo/plugin-settings/todo/todo-data.json` before deploying.
 - An attempt stays actionable for its whole life: abandon is keyed to the attempt's own claim
   generation, not to whoever holds the claim now, and a finished attempt can be removed from the
   history with `todo.launch.forget` (Todo records only; the agent and workspace are untouched).

@@ -7,7 +7,7 @@ import { settingsRpc } from "@getpaseo/plugin";
 import { DaemonClient } from "@server/server/test-utils/daemon-client.js";
 import { createTestPaseoDaemon } from "@server/server/test-utils/paseo-daemon.js";
 import { createTestAgentClient, createTestAgentClients } from "@server/server/test-utils/fake-agent-client.js";
-import { acquireLaunch, checkLaunch, createWorkItem, ensureDocument, reportLaunchProgress } from "../../shared/contracts";
+import { acquireLaunch, checkLaunch, createWorkItem, ensureDocument, moveWorkItem, reportLaunchProgress } from "../../shared/contracts";
 import { computeCreationFingerprint, computeRequestFingerprint } from "../../shared/fingerprint";
 import { buildTodoLabels } from "../../shared/labels";
 import { TODO_SETTINGS_ID, TodoDocumentSchema } from "../../shared/schema";
@@ -99,6 +99,8 @@ test("todo plugin installs, reconciles native launches without the app, and surv
 
     // What the host does after persisting agent_request_started: report the fact, then create.
     await rpc(reportLaunchProgress.name, { expectedIncarnationId: incarnationId, attemptId, generation: 1, facet: "agent-request", factVersion: 1, facts: { agentRequestStartedAt: new Date().toISOString(), workspaceIdHint: workspace.workspace.id } });
+    // The first request-start moves the card before any agent exists.
+    expect((await readDocument()).workItems[itemId]).toMatchObject({ number: 1, status: "in_progress", statusReason: "launch_started" });
     const agent = await client.createAgent({
       config: { provider: "pi", model: "test", cwd: workspaceDirectory },
       workspaceId: workspace.workspace.id,
@@ -124,6 +126,8 @@ test("todo plugin installs, reconciles native launches without the app, and surv
     await expect
       .poll(async () => (await readDocument()).agentLinks[agent.id]?.displayState, { timeout: 20_000, interval: 250 })
       .toBe("closed");
+    // Without any app, the daemon-side reconciler moved the card to review once the agent settled.
+    expect((await readDocument()).workItems[itemId]).toMatchObject({ status: "in_review", statusReason: "agent_finished" });
 
     // A new attempt is allowed once the agent is closed; the old link stays.
     const second = await rpc<{ status: string }>(acquireLaunch.name, { ...acquire, attemptId: "att_e2e_0000000000000003", requestFingerprint: computeRequestFingerprint({ projectId, workItemId: itemId, attemptId: "att_e2e_0000000000000003", clientMessageId: "msg-2", labels: buildTodoLabels(itemId, "att_e2e_0000000000000003"), seedPrompt: "Ship it" }), clientMessageId: "msg-2" });
@@ -136,6 +140,8 @@ test("todo plugin installs, reconciles native launches without the app, and surv
     await expect(rpc(prefs.read.name, {})).resolves.toMatchObject({ status: "ready", values: savedPrefs });
     expect(reloaded.agentLinks[agent.id]).toMatchObject({ attemptId, displayState: "closed" });
     expect(reloaded.claims[itemId]).toMatchObject({ attemptId: "att_e2e_0000000000000003", state: "pending" });
+    expect(reloaded.workItems[itemId]).toMatchObject({ status: "in_review" });
+    await expect(rpc(moveWorkItem.name, { expectedIncarnationId: incarnationId, id: itemId, status: "done" })).resolves.toMatchObject({ status: "ok", previousStatus: "in_review", workItem: { status: "done", version: 1 } });
     const status = await rpc<{ status: string; degraded: unknown }>("todo.document.status", {});
     expect(status).toMatchObject({ status: "ok", degraded: null });
   } catch (error) {

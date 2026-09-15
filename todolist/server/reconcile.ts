@@ -440,6 +440,17 @@ export class TodoReconciler {
     }
     this.log.clear(`apply_failed:${agentId}:capacity_exceeded`);
     const result = outcome.result;
+    if (result.autoMove) {
+      this.log.info("auto_move", {
+        workItemId: result.link?.workItemId,
+        attemptId: result.link?.attemptId,
+        agentId,
+        source,
+        from: result.autoMove.from,
+        to: result.autoMove.to,
+        reason: result.autoMove.reason,
+      });
+    }
     if (result.linked) {
       this.knownLinkIds.add(agentId);
       this.candidates.delete(agentId);

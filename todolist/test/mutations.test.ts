@@ -4,21 +4,23 @@ import {
   acquireLaunchMutation,
   createWorkItemMutation,
   forgetAttemptMutation,
+  moveWorkItemMutation,
   purgeWorkItemMutation,
   rebindWorkItemProjectMutation,
   reorderWorkItemMutation,
   reportLaunchProgressMutation,
   setWorkItemArchivedMutation,
-  setWorkItemStatusMutation,
   updateWorkItemMutation,
   projectItems,
 } from "../server/mutations";
 import { applyAgentSnapshotMutation, canonicalizeAgentSnapshot } from "../server/apply";
 import { RANK_STEP, rankFromInteger } from "../shared/rank";
-import type { TodoDocument } from "../shared/schema";
+import type { TodoDocument, WorkItemStatus } from "../shared/schema";
 import { buildTodoLabels } from "../shared/labels";
 import { fakeAgent } from "./helpers/fake-paseo";
 import { NOW, baseDocument, createInput, launchInput, withClaim, withWorkItem } from "./helpers/setup";
+
+const LATER = "2026-09-11T11:00:00.000Z";
 
 function commit<T>(outcome: { status: string; values?: TodoDocument; result?: T }): TodoDocument {
   if (outcome.status !== "commit" || !outcome.values) throw new Error(`expected commit, got ${outcome.status}`);
@@ -97,17 +99,66 @@ describe("versioned edits", () => {
     expect(edited.workItems["wi-1"]?.title).toBe("New");
   });
 
-  it("status and archive transitions are versioned and idempotent", () => {
+  it("moves are last-writer-wins, keep the content version, and track completion", () => {
     const document = withWorkItem(baseDocument(), "wi-1");
-    const done = commit(setWorkItemStatusMutation(document, { expectedIncarnationId: "inc-1", id: "wi-1", expectedVersion: 1, status: "done" }, NOW));
-    expect(done.workItems["wi-1"]).toMatchObject({ status: "done", completedAt: NOW, version: 2 });
-    expect(setWorkItemStatusMutation(done, { expectedIncarnationId: "inc-1", id: "wi-1", expectedVersion: 2, status: "done" }, NOW).status).toBe("unchanged");
-    const reopened = commit(setWorkItemStatusMutation(done, { expectedIncarnationId: "inc-1", id: "wi-1", expectedVersion: 2, status: "open" }, NOW));
+    const move = (doc: TodoDocument, status: WorkItemStatus) =>
+      moveWorkItemMutation(doc, { expectedIncarnationId: "inc-1", id: "wi-1", status }, LATER);
+    const doneOutcome = move(document, "done");
+    expect(doneOutcome).toMatchObject({ status: "commit", result: { previousStatus: "todo", placed: false } });
+    const done = commit(doneOutcome);
+    expect(done.workItems["wi-1"]).toMatchObject({ status: "done", completedAt: LATER, statusChangedAt: LATER, statusReason: "manual", version: 1 });
+    expect(move(done, "done").status).toBe("unchanged");
+    const reopened = commit(move(done, "todo"));
     expect(reopened.workItems["wi-1"]?.completedAt).toBeUndefined();
-    const archived = commit(setWorkItemArchivedMutation(reopened, { expectedIncarnationId: "inc-1", id: "wi-1", expectedVersion: 3, archived: true }, NOW));
+    // An editor opened before the moves still saves: moves never bump the content version.
+    const edited = commit(updateWorkItemMutation(reopened, { expectedIncarnationId: "inc-1", id: "wi-1", expectedVersion: 1, patch: { title: "Renamed" } }, NOW));
+    const archived = commit(setWorkItemArchivedMutation(edited, { expectedIncarnationId: "inc-1", id: "wi-1", expectedVersion: 2, archived: true }, NOW));
     expect(archived.workItems["wi-1"]?.archivedAt).toBe(NOW);
-    const restored = commit(setWorkItemArchivedMutation(archived, { expectedIncarnationId: "inc-1", id: "wi-1", expectedVersion: 4, archived: false }, NOW));
+    const restored = commit(setWorkItemArchivedMutation(archived, { expectedIncarnationId: "inc-1", id: "wi-1", expectedVersion: 3, archived: false }, NOW));
+    expect(restored.workItems["wi-1"]).toMatchObject({ status: "todo" });
     expect(restored.workItems["wi-1"]?.archivedAt).toBeUndefined();
+    expect(moveWorkItemMutation(restored, { expectedIncarnationId: "inc-1", id: "wi-missing", status: "done" }, NOW)).toMatchObject({ status: "not_found" });
+  });
+
+  it("places a moved card between neighbours, and keeps its rank when the order changed", () => {
+    let document = withWorkItem(baseDocument(), "wi-1");
+    document = withWorkItem(document, "wi-2");
+    document = withWorkItem(document, "wi-3");
+    const placed = moveWorkItemMutation(document, { expectedIncarnationId: "inc-1", id: "wi-3", status: "in_progress", placement: { expectedProjectOrderVersion: 3, beforeId: "wi-1", afterId: "wi-2" } }, NOW);
+    expect(placed).toMatchObject({ status: "commit", result: { placed: true } });
+    const moved = commit(placed);
+    expect(projectItems(moved, "project-1").map((item) => item.id)).toEqual(["wi-1", "wi-3", "wi-2"]);
+    expect(moved.projectOrderVersions["project-1"]).toBe(4);
+    const stale = moveWorkItemMutation(moved, { expectedIncarnationId: "inc-1", id: "wi-2", status: "done", placement: { expectedProjectOrderVersion: 3, afterId: "wi-1" } }, NOW);
+    expect(stale).toMatchObject({ status: "commit", result: { placed: false, workItem: { status: "done" } } });
+    const kept = commit(stale);
+    expect(kept.workItems["wi-2"]?.rank).toBe(moved.workItems["wi-2"]?.rank);
+    expect(kept.projectOrderVersions["project-1"]).toBe(4);
+  });
+});
+
+describe("numbers and initial columns", () => {
+  it("numbers items in creation order, never reuses a number, and honours the initial column", () => {
+    let document = withWorkItem(baseDocument(), "wi-1");
+    document = commit(createWorkItemMutation(document, { ...createInput("wi-2"), status: "backlog" }, NOW));
+    document = commit(createWorkItemMutation(document, { ...createInput("wi-3"), status: "done" }, NOW));
+    expect(document.workItems["wi-1"]).toMatchObject({ number: 1, status: "todo", statusReason: "created" });
+    expect(document.workItems["wi-2"]).toMatchObject({ number: 2, status: "backlog" });
+    expect(document.workItems["wi-3"]).toMatchObject({ number: 3, status: "done", completedAt: NOW });
+    document = commit(setWorkItemArchivedMutation(document, { expectedIncarnationId: "inc-1", id: "wi-3", expectedVersion: 1, archived: true }, NOW));
+    document = commit(purgeWorkItemMutation(document, { expectedIncarnationId: "inc-1", id: "wi-3", expectedVersion: 2, confirm: true, force: false }, NOW));
+    document = withWorkItem(document, "wi-4");
+    expect(document.workItems["wi-4"]?.number).toBe(4);
+    expect(document.nextWorkItemNumber).toBe(5);
+  });
+
+  it("refuses to launch from Done or Cancelled but allows In review", () => {
+    for (const status of ["done", "cancelled"] as const) {
+      const document = commit(createWorkItemMutation(baseDocument(), { ...createInput("wi-1"), status }, NOW));
+      expect(acquireLaunchMutation(document, launchInput("wi-1", "att-1"), NOW)).toMatchObject({ status: "invalid_transition" });
+    }
+    const review = commit(createWorkItemMutation(baseDocument(), { ...createInput("wi-1"), status: "in_review" }, NOW));
+    expect(acquireLaunchMutation(review, launchInput("wi-1", "att-1"), NOW).status).toBe("commit");
   });
 });
 

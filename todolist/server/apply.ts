@@ -1,7 +1,14 @@
 import { fingerprintOf } from "../shared/fingerprint";
 import { parseTodoLabels } from "../shared/labels";
+import type { AutoMove } from "../shared/board";
 import type { AgentLink, Attempt, LaunchClaim, TodoDocument } from "../shared/schema";
-import { deriveDisplayState, type RawAgentStatus, type RawAttentionReason } from "../shared/state";
+import {
+  deriveDisplayState,
+  isActiveDisplayState,
+  type RawAgentStatus,
+  type RawAttentionReason,
+} from "../shared/state";
+import { withAgentAutoMove } from "./mutations";
 import type { MutationOutcome } from "./store";
 
 /** Canonical, null-folded projection of one agent snapshot. Heartbeat timestamps are excluded. */
@@ -85,6 +92,8 @@ export interface ApplyResult {
   claimResolved: boolean;
   rejection?: ApplyRejection;
   link?: AgentLink;
+  /** Board move folded into this write by an agent starting or finishing. */
+  autoMove?: AutoMove;
 }
 
 function projectionPatch(
@@ -186,14 +195,29 @@ export function applyAgentSnapshotMutation(
         result: { linked: false, projectionChanged: false, claimResolved: false, link },
       };
     }
-    return {
-      status: "commit",
-      values: {
+    const moved = withAgentAutoMove(
+      document,
+      {
         ...document,
         agentLinks: { ...document.agentLinks, [link.agentId]: link },
         ...(claim ? { claims: { ...document.claims, [claim.workItemId]: claim } } : {}),
       },
-      result: { linked: false, projectionChanged: changed, claimResolved: Boolean(claim), link },
+      {
+        workItemId: link.workItemId,
+        agentFinished: isActiveDisplayState(existing.displayState) && !isActiveDisplayState(link.displayState),
+      },
+      now,
+    );
+    return {
+      status: "commit",
+      values: moved.document,
+      result: {
+        linked: false,
+        projectionChanged: changed,
+        claimResolved: Boolean(claim),
+        link,
+        ...(moved.autoMove ? { autoMove: moved.autoMove } : {}),
+      },
       kind: "recovery",
     };
   }
@@ -241,15 +265,28 @@ export function applyAgentSnapshotMutation(
     updatedAt: now,
   };
   const claim = resolveClaim(document, attempt, link.agentId, now);
-  return {
-    status: "commit",
-    values: {
+  // A new link seen already idle counts as finished: its whole run may have happened unobserved.
+  const moved = withAgentAutoMove(
+    document,
+    {
       ...document,
       agentLinks: { ...document.agentLinks, [link.agentId]: link },
       attempts: { ...document.attempts, [attempt.id]: nextAttempt },
       ...(claim ? { claims: { ...document.claims, [claim.workItemId]: claim } } : {}),
     },
-    result: { linked: true, projectionChanged: true, claimResolved: Boolean(claim), link },
+    { workItemId: workItem.id, agentFinished: !isActiveDisplayState(link.displayState) },
+    now,
+  );
+  return {
+    status: "commit",
+    values: moved.document,
+    result: {
+      linked: true,
+      projectionChanged: true,
+      claimResolved: Boolean(claim),
+      link,
+      ...(moved.autoMove ? { autoMove: moved.autoMove } : {}),
+    },
     kind: "recovery",
   };
 }

@@ -132,6 +132,23 @@ describe("live updates, ordering, and dirty rerun", () => {
     expect(h.document.current().agentLinks["agent-1"]?.attemptId).toBe("att-1");
   });
 
+  it("moves the card with the agent: running → In progress, idle → In review, and logs both moves", async () => {
+    const h = harness();
+    harnesses.push(h);
+    await seedWorkItemAndClaim(h.store, "wi-1", "att-1");
+    await h.reconciler.runPeriodic();
+    const project = { projectKey: "project-1", projectName: "P", workspaceName: null, checkout: {} as never };
+    h.paseo.agents.set("agent-1", { agent: fakeAgent({ id: "agent-1", labels: buildTodoLabels("wi-1", "att-1"), status: "running" }), projectId: "project-1" });
+    h.paseo.emit({ kind: "upsert", agent: h.paseo.agents.get("agent-1")!.agent, project });
+    await vi.waitFor(() => expect(h.document.current().workItems["wi-1"]?.status).toBe("in_progress"));
+    h.paseo.agents.get("agent-1")!.agent = fakeAgent({ id: "agent-1", labels: buildTodoLabels("wi-1", "att-1"), status: "idle", updatedAt: "2026-09-11T00:00:02.000Z" });
+    h.paseo.emit({ kind: "upsert", agent: h.paseo.agents.get("agent-1")!.agent, project });
+    await vi.waitFor(() => expect(h.document.current().workItems["wi-1"]).toMatchObject({ status: "in_review", statusReason: "agent_finished" }));
+    const moves = h.log.lines.filter((line) => line.includes("auto_move"));
+    expect(moves).toHaveLength(2);
+    expect(moves.join("\n")).not.toContain("Item wi-1");
+  });
+
   it("drops an older paginated snapshot after a newer live upsert without a document write", async () => {
     const h = harness();
     harnesses.push(h);

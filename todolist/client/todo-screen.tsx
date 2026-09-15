@@ -194,7 +194,7 @@ function TodoReady(props: {
         }),
       check: (view) => void runCheck(view),
       edit: (view) => setEditor({ open: true, view }),
-      setStatus: (view, statusValue) => void actions.setStatus(view.item, statusValue),
+      move: (view, statusValue) => void actions.move(view.item, statusValue),
       setArchived: (view, archived) => void actions.setArchived(view.item, archived),
       purge: (view) => {
         const force = view.attempts.some((attempt) => attempt.userDisposition === "abandoned") && view.aggregate.unknownAttemptIds.length > 0;
