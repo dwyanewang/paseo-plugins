@@ -52,9 +52,12 @@ Implementation branch: `feat/todo-plugin-hybrid`, merged into `rw-main` (`ea8794
       globals, HTML elements, `className`, and DOM handlers; the plugin compiler's runtime-boundary
       check runs against the complete directory in the E2E install)
 - [x] Targeted tests, builds, typechecks, lint and formatting
-- [ ] Platform smoke flows (Electron, browser, iOS, Android, light/dark): not run as a recorded
-      matrix. Field use on the live `rw-main` build surfaced the Phase F fixes, but UI is otherwise
-      verified by typecheck, audit, and logic tests only
+- [ ] Platform smoke flows (Electron, browser, iOS, Android, light/dark): the browser is done, the
+      rest are not.
+      - Phase H exercised the web app in a browser at desktop and phone widths against isolated
+        daemons; see stages 2–4.
+      - Still to run: Electron, iOS and Android on real builds, and a light/dark pass.
+      - Field use on the live `rw-main` build surfaced the Phase F fixes.
 - [x] Deployment to the live daemon: `rw-main` contains `feat/todo-plugin-hybrid`, the daemon
       `config.json` has `pluginsEnabled: true`, and `todo` is installed from this directory
 

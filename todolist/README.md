@@ -28,7 +28,8 @@ branch, which adds the two generic core extensions this plugin needs:
 | `server/mutations.ts`, `server/apply.ts` | Pure mutations; snapshot apply with correlation discovery ahead of the projection gate. |
 | `server/reconcile.ts` | Bootstrap scan (single subscribe), live upserts/removes, targeted refresh, periodic scan ∪ known-ID refresh, in-process watermarks and dirty reruns, bounded timeline search. |
 | `client/run.ts` | Direct run: acquire, request-start milestones, `workspace.agents.create`, agent-observation. Same attempt records the composer path writes. |
-| `client/board*.tsx`, `client/card-detail.tsx`, `client/move-menu.tsx` | Board view: project picker, filters and search, columns (side by side, scrolling, or status tabs by width), cards, the move menu, and the card detail. |
+| `client/board*.tsx`, `client/card-detail.tsx`, `client/move-menu.tsx` | Board view: project picker, filters and search, columns (side by side, scrolling, or status tabs by width), cards, pointer drag on wide layouts, the move menu, and the card detail. |
+| `client/continue-modal.tsx`, `client/follow-up.ts` | Moving into In progress: the follow-up and approval dialog, and the stable-message-ID send. |
 | `client/` | React Native surface, sidebar item, workspace panel, settings screen, launch flows, recovery screen. |
 
 ## Trust and data lifecycle
@@ -110,3 +111,7 @@ paseo plugin install /home/yangfei/Projects/paseo-plugins/todolist
 paseo plugin ls
 paseo plugin logs todo
 ```
+
+The daemon loads the plugin in place from this directory, so pulling new code changes nothing until
+the plugin reloads (`paseo plugin reload todo`, the app's plugin settings, or a daemon restart). A
+reload that brings a new `todo-data` version migrates the document on its first read.
