@@ -105,10 +105,10 @@ now gates the composer hand-off alone.
 - [x] Tests: `test/launch-defaults.test.ts` (9), `test/run.test.ts` (3), and the E2E preference
       round trip across a plugin reload.
 
-## Phase H — board view (in progress)
+## Phase H — board view (merged 2026-09-15)
 
-Normative source: `/home/yangfei/Private/Dw-Plans/paseo-todo-kanban-plan.md`, branch
-`feat/todo-kanban`.
+Normative source: `/home/yangfei/Private/Dw-Plans/paseo-todo-kanban-plan.md`. Built on
+`feat/todo-kanban`, fast-forwarded into `main` at `4161b0e`.
 
 - [x] Stage 1, data and rules:
   - `todo-data` version 2 with six statuses, `number`, `statusChangedAt`, `statusReason` and
@@ -207,7 +207,16 @@ Normative source: `/home/yangfei/Private/Dw-Plans/paseo-todo-kanban-plan.md`, br
   - no grips at phone width.
 
   That pass fixed a runaway auto-scroll: the translated card kept widening the scrollable content.
-- [ ] Stage 5: docs, benchmark, smoke flows, data backup before deploy
+- [x] Stage 5, release:
+  - README and this checklist brought up to the board.
+  - Benchmark re-run: 88 bytes more per work item, and the frozen tiers are unchanged.
+  - The live `todo-data.json` and `todo-prefs.json` were backed up to
+    `~/.paseo-backups/todo/2026-09-15-before-board/` and checked by SHA-256.
+  - A dry run on that copy migrated both open items to In review (#1, #2) and kept the incarnation.
+  - The branch was merged into `main`.
+- [ ] Live migration: waits for the daemon to reload the plugin; the CLI needs the daemon password.
+      Afterwards `todo-data.json` should report version 2.
+- [ ] Smoke flows on Electron, Android and iOS (see Phase E).
 
 ## Acceptance bus
 
