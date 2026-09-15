@@ -129,7 +129,8 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
    * Nothing is retried. The failure is recorded as unknown for both stages, with the workspace when
    * one is known: a stage that never started, or whose result is already known, ignores the flag,
    * so the attempt reads as unknown exactly where a request may be pending, and the card offers
-   * abandon or retry instead of resuming the same attempt. The record itself is best effort.
+   * abandon or retry. The record itself is best effort: if the daemon cannot take it either, the
+   * card stays a pending launch until abandoned by hand, and resume stays blocked.
    */
   const outcomeUnknown = async (failure: { error: unknown; fallback: string; code: string; workspaceId?: string }): Promise<RunResult> => {
     const message = describe(failure.error, failure.fallback);

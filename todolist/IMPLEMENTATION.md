@@ -326,8 +326,10 @@ Requested after using the Phase I board. Plan addendum: "第三轮调整" in
     - a failed start write releases the claim when the daemon accepts "not submitted"; otherwise
       the outcome is recorded as unknown;
     - an unknown outcome is recorded for both stages at once, with the workspace when known.
-      Stages that never started or are already known ignore it, so every stopped launch reads as
-      "outcome unknown" (abandon, retry) or is released, never as a pending launch.
+      Stages that never started or are already known ignore it, so a stopped launch reads as
+      "outcome unknown" (abandon, retry) or is released. The one exception is when the unknown
+      record cannot be written either: the card then stays a pending launch until abandoned by
+      hand, and `canResumeAttempt` still blocks replaying it.
   - Resume launch needs a composer journal, or an attempt that never sent anything
     (`canResumeAttempt`). A direct run's attempt can no longer be replayed through the composer.
   - Phones stay on the tabs layout when a filter leaves one column, so New creates in Backlog under
