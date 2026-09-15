@@ -2,7 +2,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Modal } from "@getpaseo/plugin/client/react-native";
 import { Text, View } from "react-native";
 import { isAttemptNotSubmitted, isAttemptOutcomeUnknown, isAttemptSettled, stageCertainty } from "../shared/attempt";
-import { STATUS_REASON_LABELS, formatRelativeTime } from "../shared/board";
+import { STATUS_REASON_LABELS, formatRelativeTime, resolveInProgressIntent } from "../shared/board";
 import type { AgentLink, Attempt, WorkItemStatus } from "../shared/schema";
 import { Badge, Button } from "./components";
 import type { WorkItemView } from "./data";
@@ -19,7 +19,9 @@ export interface CardActions {
   forget: (view: WorkItemView, attempt: Attempt) => void;
   check: (view: WorkItemView) => void;
   edit: (view: WorkItemView) => void;
+  /** Moving into In progress may open a dialog instead of moving at once; see `requestMove`. */
   move: (view: WorkItemView, status: WorkItemStatus) => void;
+  continueAgent: (view: WorkItemView) => void;
   setArchived: (view: WorkItemView, archived: boolean) => void;
   purge: (view: WorkItemView) => void;
   rebind: (view: WorkItemView) => void;
@@ -182,6 +184,7 @@ function DetailBody(props: {
             : "Choose the prompt, workspace and model, then start";
   const unknownPending = aggregate.unknownAttemptIds.length > 0 && aggregate.pendingClaim !== null;
   const checking = actions.checkingId === item.id;
+  const canContinue = !archived && resolveInProgressIntent(view).kind === "continue";
   return (
     <>
       <StatusPicker styles={styles} theme={theme} value={item.status} onChange={(status) => actions.move(view, status)} />
@@ -199,8 +202,11 @@ function DetailBody(props: {
       <Text style={styles.mono}>Default prompt: {item.defaultPrompt ? item.defaultPrompt.slice(0, 200) : "(empty)"}</Text>
       {aggregate.pendingClaim ? <Text style={styles.muted}>Launch prepared by {aggregate.pendingClaim.initiatorLabel}</Text> : null}
       <View style={styles.rowWrap}>
+        {canContinue ? (
+          <Button styles={styles} theme={theme} label="Continue agent" icon="Send" variant="primary" onPress={() => actions.continueAgent(view)} accessibilityHint="Send a follow-up message to the agent that last worked on this item" />
+        ) : null}
         {!archived && !closed ? (
-          <Button styles={styles} theme={theme} label="Execute" icon="Play" variant="primary" disabled={executeDisabled} accessibilityHint={executeHint} onPress={() => actions.execute(view)} />
+          <Button styles={styles} theme={theme} label="Execute" icon="Play" variant={canContinue ? "secondary" : "primary"} disabled={executeDisabled} accessibilityHint={executeHint} onPress={() => actions.execute(view)} />
         ) : null}
         {unknownPending ? (
           <Button styles={styles} theme={theme} label="Retry anyway" icon="AlertTriangle" variant="danger" disabled={!props.projectAvailable} onPress={() => actions.retryAnyway(view)} accessibilityHint={TEXT.retryAnywayWarning} />

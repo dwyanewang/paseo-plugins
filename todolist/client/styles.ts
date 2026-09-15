@@ -142,9 +142,7 @@ export function useTodoStyles(theme: PluginTheme, compact: boolean): TodoStyles 
         gap: 6,
       },
       agentLine: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
+        gap: 2,
         backgroundColor: colors.surface2,
         borderRadius: 6,
         paddingHorizontal: 8,

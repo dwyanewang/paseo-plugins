@@ -72,13 +72,20 @@ export function BoardCard(props: {
           onPress={() => props.onOpenAgent?.(latest.agentId)}
           style={styles.agentLine}
         >
-          <View style={[styles.dot, { backgroundColor: theme.colors[DISPLAY_STATE_COLOR[latest.displayState]] }]} />
-          <Text style={[styles.mono, { flexShrink: 1 }]} numberOfLines={1}>
-            {agent.label} · {latest.provider}
+          <View style={[styles.row, { gap: 6 }]}>
+            <View style={[styles.dot, { backgroundColor: theme.colors[DISPLAY_STATE_COLOR[latest.displayState]] }]} />
+            <Text style={[styles.mono, { flex: 1 }]} numberOfLines={1}>
+              {agent.label}
+            </Text>
+            <Text style={[styles.mono, { flexShrink: 0 }]} numberOfLines={1}>
+              {formatRelativeTime(latest.stateChangedAt, now)}
+            </Text>
+          </View>
+          <Text style={styles.mono} numberOfLines={1}>
+            {latest.provider}
             {latest.model ? ` · ${latest.model}` : ""}
+            {links.length > 1 ? ` · +${links.length - 1} more` : ""}
           </Text>
-          <Text style={[styles.mono, { marginLeft: "auto" }]}>{formatRelativeTime(latest.stateChangedAt, now)}</Text>
-          {links.length > 1 ? <Text style={styles.mono}>+{links.length - 1}</Text> : null}
         </Pressable>
       ) : null}
     </View>

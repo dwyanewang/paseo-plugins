@@ -44,6 +44,8 @@ export function ExecuteModal(props: {
   defaultWorkspaceId: string | null;
   canOpenComposer: boolean;
   onSubmit: (input: ExecuteSubmit) => Promise<boolean>;
+  /** Present when the dialog came from moving the card into In progress: move without running. */
+  onMoveOnly?: () => void;
 }) {
   const { styles, theme, item } = props;
   const paseo = usePaseo();
@@ -248,6 +250,7 @@ export function ExecuteModal(props: {
             disabled={blocked}
             onPress={() => void submit()}
           />
+          {props.onMoveOnly ? <Button styles={styles} theme={theme} label="Move only" disabled={busy} onPress={props.onMoveOnly} /> : null}
           <Button styles={styles} theme={theme} label="Cancel" disabled={busy} onPress={() => props.onOpenChange(false)} />
         </View>
       </Modal.Content>

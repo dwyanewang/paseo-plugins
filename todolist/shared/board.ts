@@ -1,5 +1,13 @@
 import { compareRanks } from "./rank";
-import { WORK_ITEM_STATUSES, type AgentLink, type StatusReason, type WorkItem, type WorkItemStatus } from "./schema";
+import {
+  WORK_ITEM_STATUSES,
+  type AgentLink,
+  type StatusReason,
+  type TodoAgentDisplayState,
+  type WorkItem,
+  type WorkItemStatus,
+} from "./schema";
+import type { WorkItemAggregate } from "./state";
 
 export const WORK_ITEM_STATUS_LABELS: Record<WorkItemStatus, string> = {
   backlog: "Backlog",
@@ -157,6 +165,43 @@ export function deriveAutoMove(status: WorkItemStatus, trigger: AutoMoveTrigger)
     return { from: status, to: "in_review", reason: "agent_finished" };
   }
   return null;
+}
+
+export type InProgressIntent =
+  | { kind: "move_only"; reason: "agent_active" | "launch_in_flight" }
+  | { kind: "permission"; agentId: string }
+  /** Agents that can take a follow-up, latest state change first. */
+  | { kind: "continue"; agentIds: string[] }
+  | { kind: "execute" };
+
+/** Settled states a follow-up can resume; sending reopens a closed or archived agent. */
+const CONTINUABLE: ReadonlySet<TodoAgentDisplayState> = new Set(["waiting_confirmation", "error", "closed"]);
+
+/**
+ * What moving a card into In progress by hand should do. A running agent or a launch in flight
+ * means the card only moves: a follow-up would interrupt the running turn. An agent waiting for
+ * permission needs its own page. Otherwise the most recently settled agent can take a follow-up,
+ * and with none left a new run starts. Stale links are never trusted to be idle.
+ */
+export function resolveInProgressIntent(view: {
+  links: readonly AgentLink[];
+  aggregate: Pick<WorkItemAggregate, "pendingClaim" | "unknownAttemptIds">;
+}): InProgressIntent {
+  const links = [...view.links].sort((left, right) => right.stateChangedAt.localeCompare(left.stateChangedAt));
+  const running = links.some(
+    (link) =>
+      link.displayState === "initializing" ||
+      link.displayState === "running" ||
+      (link.displayState === "permission" && link.staleSince),
+  );
+  if (running) return { kind: "move_only", reason: "agent_active" };
+  if (view.aggregate.pendingClaim || view.aggregate.unknownAttemptIds.length > 0) {
+    return { kind: "move_only", reason: "launch_in_flight" };
+  }
+  const waiting = links.find((link) => link.displayState === "permission");
+  if (waiting) return { kind: "permission", agentId: waiting.agentId };
+  const continuable = links.filter((link) => !link.staleSince && CONTINUABLE.has(link.displayState));
+  return continuable.length > 0 ? { kind: "continue", agentIds: continuable.map((link) => link.agentId) } : { kind: "execute" };
 }
 
 /** Applies a status change without bumping `version`, so an open editor never conflicts with a move. */

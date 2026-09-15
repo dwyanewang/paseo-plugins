@@ -145,7 +145,41 @@ Normative source: `/home/yangfei/Private/Dw-Plans/paseo-todo-kanban-plan.md`, br
 
   Known issue predating the board: a project added while Todo is open only reaches the plugin's
   project list after a reload.
-- [ ] Stage 3: drag to In progress runs or continues the agent
+- [x] Stage 3, moving a card into In progress gets an agent working:
+  - `resolveInProgressIntent` decides:
+    - an agent running or a launch in flight → move only, with a toast;
+    - an agent waiting for permission → open it;
+    - a finished, failed or closed agent → the follow-up dialog;
+    - otherwise → the execute dialog with Move only.
+  - The card moves when the user confirms, never optimistically.
+  - The follow-up dialog (`client/continue-modal.tsx`, `client/follow-up.ts`):
+    - keeps one message ID per opening and locks the text after a send;
+    - offers only "Retry the same message" after an unconfirmed send;
+    - re-checks the live card before sending, because a send interrupts a running turn.
+  - The card detail gains Continue agent.
+
+  V1/V2 were checked against the server source and a fake-provider test daemon:
+  - a same-ID resend is delivered once;
+  - the same ID with other text is a conflict;
+  - an ambiguous earlier send is never replayed;
+  - an archived agent is unarchived and runs;
+  - an error-state agent was confirmed from the source only.
+
+  Tests: intent cases in `test/board.test.ts` and `test/follow-up.test.ts`.
+
+  Verified in the web app against a fake-provider test daemon:
+  - follow-up from the move menu → the agent ran → the card went back to In review;
+  - Move only from the execute dialog;
+  - Done → In progress then Cancel leaves the card in Done;
+  - Continue agent from the detail;
+  - an unconfirmed send after deleting the agent, and the stale link hiding Continue.
+
+  That pass split the card's agent line into two rows and separated "running" from "unreachable"
+  in the dialog's notices.
+
+  Observation, predating stage 3: while an agent's first snapshots arrived out of order, R2/R3
+  briefly bounced a card In review → In progress → In review within 30 ms. The final state was
+  correct.
 - [ ] Stage 4: drag and drop on wide layouts
 - [ ] Stage 5: docs, benchmark, smoke flows, data backup before deploy
 

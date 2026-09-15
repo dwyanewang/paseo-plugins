@@ -88,6 +88,20 @@ export const TEXT = {
     "Removes this attempt and its agent links from the Todo history only. The agent and its workspace are untouched, but Todo stops tracking them.",
   checkNotice:
     "Check status re-reads every agent linked to this item from the daemon and updates the badges. It is the same action on the item and on an attempt.",
+  followUpNotice:
+    "The message is sent to this agent as a new turn. Todo keeps one message ID for this dialog, so a retry never delivers it twice.",
+  followUpReopenNotice: "This agent is closed. Sending reopens it, and unarchives it if it was archived.",
+  followUpBusyNotice:
+    "This agent is running again. Sending now would interrupt its turn, so open the agent instead.",
+  followUpUnknownNotice:
+    "Todo could not confirm the message. It may still have arrived. Check the status, or retry: the same message is never delivered twice.",
+  followUpUnreachableNotice:
+    "Todo cannot confirm this agent's current state: it may have been deleted, or its provider is unavailable. Check the status or open the agent.",
+  followUpArrivedNotice:
+    "The agent is running now, so the message most likely arrived. Open the agent to follow it.",
+  followUpReplayRefusedNotice:
+    "Paseo cannot tell whether the earlier send arrived and will not replay it. Open the agent to see what it received.",
+  permissionNotice: "An agent on this card is waiting for your approval. Answer it on the agent page.",
   resetWarning:
     "Reset replaces the Todo document with an empty one. Every item, attempt, and agent link on this host is lost, and open launch drafts on all devices become stale.",
 };

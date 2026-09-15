@@ -4,7 +4,14 @@ import { ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Text, View } from "react-native";
-import { BOARD_COLUMN_WIDTH, WORK_ITEM_STATUS_LABELS, buildBoard, neighboursAt, type BoardFilter } from "../shared/board";
+import {
+  BOARD_COLUMN_WIDTH,
+  WORK_ITEM_STATUS_LABELS,
+  buildBoard,
+  neighboursAt,
+  resolveInProgressIntent,
+  type BoardFilter,
+} from "../shared/board";
 import { documentStatus } from "../shared/contracts";
 import { todoPrefs } from "../shared/prefs";
 import type { Attempt, TodoDocument, WorkItemStatus } from "../shared/schema";
@@ -13,8 +20,10 @@ import { BoardCard } from "./board-card";
 import { BoardToolbar, ProjectPicker, type ProjectOption } from "./board-toolbar";
 import { CardDetail, type CardActions } from "./card-detail";
 import { Button, ConfirmModal, Notice } from "./components";
+import { ContinueModal, type StartRequest } from "./continue-modal";
 import { useTodoDocument, useWorkItemViews, type WorkItemView } from "./data";
 import { ExecuteModal, type ExecuteSubmit } from "./execute-modal";
+import { sendFollowUp } from "./follow-up";
 import { executeWorkItem, openForAttempt, type ExecuteResult } from "./launch";
 import { resolveChoice } from "./launch-defaults";
 import { resolveLaunchCapability } from "./launch-guard";
@@ -115,7 +124,9 @@ function TodoReady(props: {
   const [menuId, setMenuId] = useState<string | null>(null);
   const [editor, setEditor] = useState<{ open: boolean; view: WorkItemView | null; status: WorkItemStatus }>({ open: false, view: null, status: "todo" });
   const [rebind, setRebind] = useState<WorkItemView | null>(null);
-  const [execute, setExecute] = useState<{ view: WorkItemView; retryAnyway: boolean } | null>(null);
+  // `moveOnSubmit`: opened by moving the card into In progress, which happens once the user confirms.
+  const [execute, setExecute] = useState<{ view: WorkItemView; retryAnyway: boolean; moveOnSubmit?: Placement | true } | null>(null);
+  const [start, setStart] = useState<(StartRequest & { placement?: Placement }) | null>(null);
   const [confirm, setConfirm] = useState<{ title: string; message: string; label: string; requireDouble: boolean; run: () => Promise<unknown> } | null>(null);
   const [armed, setArmed] = useState(false);
   const [checking, setChecking] = useState<string | null>(null);
@@ -178,6 +189,36 @@ function TodoReady(props: {
       }
     },
     [actions, toast],
+  );
+
+  /**
+   * Every manual move goes through here. Moving into In progress also gets an agent working: the
+   * card only moves right away when an agent is already running or a launch is in flight;
+   * otherwise a dialog asks to continue an agent, answer its approval, or start a new run, and the
+   * card moves when the user confirms.
+   */
+  const requestMove = useCallback(
+    (view: WorkItemView, next: WorkItemStatus, placement?: Placement) => {
+      if (next !== "in_progress" || view.item.status === "in_progress") {
+        void moveCard(view, next, placement);
+        return;
+      }
+      const intent = resolveInProgressIntent(view);
+      if (intent.kind === "move_only") {
+        void moveCard(view, next, placement);
+        toast.show(
+          intent.reason === "agent_active" ? "An agent is already running, so nothing new was started." : "A launch is still in flight, so nothing new was started.",
+          { variant: "info" },
+        );
+        return;
+      }
+      if (intent.kind === "execute") {
+        setExecute({ view, retryAnyway: false, moveOnSubmit: placement ?? true });
+        return;
+      }
+      setStart({ viewId: view.item.id, intent, move: true, ...(placement ? { placement } : {}) });
+    },
+    [moveCard, toast],
   );
 
   function shiftCard(view: WorkItemView, offset: -1 | 1) {
@@ -283,7 +324,11 @@ function TodoReady(props: {
         }),
       check: (view) => void runCheck(view),
       edit: (view) => setEditor({ open: true, view, status: view.item.status }),
-      move: (view, next) => void moveCard(view, next),
+      move: (view, next) => requestMove(view, next),
+      continueAgent: (view) => {
+        const intent = resolveInProgressIntent(view);
+        if (intent.kind === "continue") setStart({ viewId: view.item.id, intent, move: view.item.status !== "in_progress" });
+      },
       setArchived: (view, archived) => void actions.setArchived(view.item, archived),
       purge: (view) => {
         const force = view.attempts.some((attempt) => attempt.userDisposition === "abandoned") && view.aggregate.unknownAttemptIds.length > 0;
@@ -300,7 +345,7 @@ function TodoReady(props: {
       openWorkspace: props.navigation ? (workspaceId) => props.navigation?.openWorkspace({ workspaceId }) : null,
       checkingId: checking,
     }),
-    [actions, capability, checking, todo.incarnationId, handleLaunchResult, moveCard, props.navigation, reload, runCheck],
+    [actions, capability, checking, todo.incarnationId, handleLaunchResult, requestMove, props.navigation, reload, runCheck],
   );
 
   // The detail dialog closes before anything that opens another dialog or leaves the board, so
@@ -314,12 +359,19 @@ function TodoReady(props: {
       };
     return {
       ...cardActions,
+      move: (view, next) => {
+        // Moving into In progress may open the continue or execute dialog; close the detail first.
+        const opensDialog = next === "in_progress" && view.item.status !== "in_progress" && resolveInProgressIntent(view).kind !== "move_only";
+        if (opensDialog) setDetailId(null);
+        cardActions.move(view, next);
+      },
       execute: closing(cardActions.execute),
       resume: closing(cardActions.resume),
       retryAnyway: closing(cardActions.retryAnyway),
       abandon: closing(cardActions.abandon),
       forget: closing(cardActions.forget),
       edit: closing(cardActions.edit),
+      continueAgent: closing(cardActions.continueAgent),
       purge: closing(cardActions.purge),
       rebind: closing(cardActions.rebind),
       openAgent: cardActions.openAgent ? closing(cardActions.openAgent) : null,
@@ -330,6 +382,12 @@ function TodoReady(props: {
   async function submitExecute(input: ExecuteSubmit): Promise<boolean> {
     if (!execute) return false;
     let item = execute.view.item;
+    if (execute.moveOnSubmit && item.status !== "in_progress") {
+      // The user moved the card here and confirmed; it stays in In progress even if the launch fails.
+      const moved = await actions.move(item, "in_progress", execute.moveOnSubmit === true ? undefined : execute.moveOnSubmit);
+      if (!moved) return false;
+      item = { ...item, status: "in_progress" };
+    }
     if (input.updateDefaultPrompt) {
       const ok = await actions.update(item, { defaultPrompt: input.seedPrompt });
       if (!ok) return false;
@@ -470,6 +528,56 @@ function TodoReady(props: {
         defaultWorkspaceId={props.defaultWorkspaceId}
         canOpenComposer={capability.available}
         onSubmit={submitExecute}
+        {...(execute?.moveOnSubmit
+          ? {
+              onMoveOnly: () => {
+                const current = execute;
+                setExecute(null);
+                void moveCard(current.view, "in_progress", current.moveOnSubmit === true ? undefined : current.moveOnSubmit);
+              },
+            }
+          : {})}
+      />
+      <ContinueModal
+        styles={styles}
+        theme={theme}
+        request={start}
+        view={start ? (views.get(start.viewId) ?? null) : null}
+        onClose={() => setStart(null)}
+        onMoveOnly={(view) => {
+          const placement = start?.placement;
+          setStart(null);
+          void moveCard(view, "in_progress", placement);
+        }}
+        onOpenAgent={
+          props.navigation
+            ? (view, agentId) => {
+                const current = start;
+                setStart(null);
+                if (current?.move && view.item.status !== "in_progress") void moveCard(view, "in_progress", current.placement);
+                props.navigation?.openAgent({ agentId });
+              }
+            : null
+        }
+        onExecuteInstead={(view) => {
+          const current = start;
+          setStart(null);
+          setExecute({ view, retryAnyway: false, ...(current?.move ? { moveOnSubmit: current.placement ?? true } : {}) });
+        }}
+        onSend={async ({ view, agentId, text, messageId }) => {
+          if (start?.move && view.item.status !== "in_progress") {
+            const moved = await actions.move(view.item, "in_progress", start.placement);
+            if (!moved) return null;
+          }
+          const result = await sendFollowUp({ paseo, agentId, text, messageId });
+          await reload();
+          if (result.status === "sent") {
+            setStart(null);
+            toast.show("Message sent. The card follows the agent.", { variant: "success" });
+          }
+          return result;
+        }}
+        onCheck={runCheck}
       />
       <ProjectPicker
         styles={styles}
@@ -487,7 +595,7 @@ function TodoReady(props: {
         onClose={() => setMenuId(null)}
         canMoveUp={menuIndex > 0}
         canMoveDown={menuColumn !== undefined && menuIndex >= 0 && menuIndex < menuColumn.views.length - 1}
-        onMove={(view, next) => void moveCard(view, next)}
+        onMove={(view, next) => requestMove(view, next)}
         onMoveUp={(view) => shiftCard(view, -1)}
         onMoveDown={(view) => shiftCard(view, 1)}
         onOpenDetails={(view) => {

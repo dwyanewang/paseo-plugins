@@ -9,6 +9,7 @@ import {
   latestLink,
   matchesSearch,
   neighboursAt,
+  resolveInProgressIntent,
 } from "../shared/board";
 import { buildTodoLabels } from "../shared/labels";
 import { rankFromInteger } from "../shared/rank";
@@ -287,5 +288,40 @@ describe("board presentation", () => {
     expect(formatRelativeTime("2026-09-13T12:00:00.000Z", now)).toBe("2 d ago");
     expect(formatRelativeTime("2026-09-15T12:01:00.000Z", now)).toBe("just now");
     expect(formatRelativeTime("not a date", now)).toBe("");
+  });
+});
+
+describe("moving a card into In progress", () => {
+  const link = (agentId: string, displayState: AgentLink["displayState"], stateChangedAt: string, patch: Partial<AgentLink> = {}) =>
+    ({ agentId, displayState, stateChangedAt, ...patch }) as AgentLink;
+  const settled = { pendingClaim: null, unknownAttemptIds: [] as string[] };
+  const intent = (links: AgentLink[], aggregate: { pendingClaim: unknown; unknownAttemptIds: string[] } = settled) =>
+    resolveInProgressIntent({ links, aggregate: aggregate as Parameters<typeof resolveInProgressIntent>[0]["aggregate"] });
+
+  it("starts a new run when no agent ever worked on the card", () => {
+    expect(intent([])).toEqual({ kind: "execute" });
+  });
+
+  it("only moves while an agent runs or a launch is in flight, so nothing interrupts a turn", () => {
+    expect(intent([link("a", "running", "2"), link("b", "waiting_confirmation", "3")])).toEqual({ kind: "move_only", reason: "agent_active" });
+    expect(intent([link("a", "initializing", "1")])).toEqual({ kind: "move_only", reason: "agent_active" });
+    expect(intent([link("a", "running", "1", { staleSince: "x" })])).toEqual({ kind: "move_only", reason: "agent_active" });
+    expect(intent([link("a", "waiting_confirmation", "1")], { pendingClaim: { attemptId: "att" }, unknownAttemptIds: [] })).toEqual({ kind: "move_only", reason: "launch_in_flight" });
+    expect(intent([], { pendingClaim: null, unknownAttemptIds: ["att"] })).toEqual({ kind: "move_only", reason: "launch_in_flight" });
+  });
+
+  it("sends an agent waiting for approval to its page", () => {
+    expect(intent([link("a", "waiting_confirmation", "3"), link("b", "permission", "1")])).toEqual({ kind: "permission", agentId: "b" });
+  });
+
+  it("continues the most recently settled agent first, including failed and closed ones", () => {
+    expect(intent([link("old", "closed", "1"), link("new", "waiting_confirmation", "3"), link("mid", "error", "2")])).toEqual({
+      kind: "continue",
+      agentIds: ["new", "mid", "old"],
+    });
+  });
+
+  it("does not trust stale or provider-less agents to take a message", () => {
+    expect(intent([link("a", "waiting_confirmation", "1", { staleSince: "x" }), link("b", "unavailable", "2")])).toEqual({ kind: "execute" });
   });
 });

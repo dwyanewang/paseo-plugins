@@ -56,6 +56,14 @@ branch, which adds the two generic core extensions this plugin needs:
   changes the underlying fact: the first request-start of a launch and an agent becoming active pull
   the card into In progress, and the last active agent finishing moves it to In review. Done and
   Cancelled only ever change by hand, and Execute is not offered there.
+- Moving a card into In progress by hand gets an agent working once you confirm:
+  - a finished, failed or closed agent can take a follow-up message;
+  - an agent waiting for permission opens on its page;
+  - with no agent, the execute dialog starts a new run.
+
+  Each dialog also offers Move only. The card only moves without asking while an agent already runs
+  or a launch is in flight: a follow-up would interrupt the running turn. A follow-up keeps one
+  message ID per dialog, so a retry is never delivered twice, and Todo never resends on its own.
 - Upgrading from `todo-data` version 1 migrates the document once. An older plugin build cannot read
   version 2, so back up `~/.paseo/plugin-settings/todo/todo-data.json` before deploying.
 - An attempt stays actionable for its whole life: abandon is keyed to the attempt's own claim
