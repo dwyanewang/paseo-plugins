@@ -7,7 +7,6 @@ export interface TodoStyles {
   scrollContent: ViewStyle;
   header: ViewStyle;
   headerTitle: TextStyle;
-  section: ViewStyle;
   sectionTitle: TextStyle;
   card: ViewStyle;
   row: ViewStyle;
@@ -34,8 +33,18 @@ export interface TodoStyles {
   notice: ViewStyle;
   noticeWarning: ViewStyle;
   noticeDanger: ViewStyle;
-  dragHandle: ViewStyle;
-  dragging: ViewStyle;
+  boardRow: ViewStyle;
+  column: ViewStyle;
+  columnTitle: TextStyle;
+  boardCard: ViewStyle;
+  agentLine: ViewStyle;
+  dot: ViewStyle;
+  iconButton: ViewStyle;
+  chip: ViewStyle;
+  chipSelected: ViewStyle;
+  chipText: TextStyle;
+  chipSelectedText: TextStyle;
+  search: TextStyle;
   detail: ViewStyle;
   gap: number;
 }
@@ -52,7 +61,6 @@ export function useTodoStyles(theme: PluginTheme, compact: boolean): TodoStyles 
       scrollContent: { flexGrow: 1, padding: compact ? 12 : 20, gap, paddingBottom: (compact ? 12 : 20) * 3 },
       header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap },
       headerTitle: { color: colors.foreground, fontSize: compact ? 20 : 24, fontWeight: "600" },
-      section: { gap },
       sectionTitle: { color: colors.foregroundMuted, fontSize: 13, fontWeight: "600", textTransform: "uppercase" },
       card: {
         backgroundColor: colors.surface1,
@@ -113,8 +121,52 @@ export function useTodoStyles(theme: PluginTheme, compact: boolean): TodoStyles 
       notice: { backgroundColor: colors.surface2, borderRadius: 8, padding: 10, gap: 4 },
       noticeWarning: { borderColor: colors.statusWarning, borderWidth: 1 },
       noticeDanger: { borderColor: colors.statusDanger, borderWidth: 1 },
-      dragHandle: { padding: 6, borderRadius: 6 },
-      dragging: { opacity: 0.6, backgroundColor: colors.surface2 },
+      // Columns stretch to the tallest one, so every column paints the full board height.
+      boardRow: { flexDirection: "row", alignItems: "stretch", gap },
+      column: {
+        backgroundColor: colors.surface1,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 10,
+        padding: compact ? 8 : 10,
+        gap: 8,
+        minHeight: 160,
+      },
+      columnTitle: { color: colors.foreground, fontSize: 14, fontWeight: "600" },
+      boardCard: {
+        backgroundColor: colors.surface0,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 8,
+        padding: 10,
+        gap: 6,
+      },
+      agentLine: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        backgroundColor: colors.surface2,
+        borderRadius: 6,
+        paddingHorizontal: 8,
+        paddingVertical: 5,
+      },
+      dot: { width: 8, height: 8, borderRadius: 4 },
+      iconButton: { padding: 4, borderRadius: 6 },
+      chip: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        paddingVertical: 5,
+        paddingHorizontal: 10,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface1,
+      },
+      chipSelected: { backgroundColor: colors.accent, borderColor: colors.accent },
+      chipText: { color: colors.foreground, fontSize: 13, fontWeight: "500" },
+      chipSelectedText: { color: colors.accentForeground, fontSize: 13, fontWeight: "600" },
+      search: { flexGrow: 1, flexBasis: 180 },
       detail: { gap: 6, paddingTop: 6 },
     };
   }, [theme, compact]);

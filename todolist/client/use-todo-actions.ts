@@ -12,7 +12,6 @@ import {
   moveWorkItem,
   purgeWorkItem,
   rebindWorkItemProject,
-  reorderWorkItem,
   reportLaunchProgress,
   setWorkItemArchived,
   updateWorkItem,
@@ -31,13 +30,17 @@ export interface TodoActions {
   reload: () => Promise<void>;
   launchRpcs: LaunchRpcs;
   ensure: () => Promise<Output<typeof ensureDocument>>;
-  create: (input: { projectId: string; projectNameSnapshot: string; projectRootSnapshot?: string; title: string; details: string; defaultPrompt: string }) => Promise<WorkItem | null>;
+  create: (input: { projectId: string; projectNameSnapshot: string; projectRootSnapshot?: string; title: string; details: string; defaultPrompt: string; status?: WorkItemStatus }) => Promise<WorkItem | null>;
   update: (item: WorkItem, patch: { title?: string; details?: string; defaultPrompt?: string }) => Promise<boolean>;
-  move: (item: WorkItem, status: WorkItemStatus) => Promise<boolean>;
+  /** Null when the write failed (already reported). `previousStatus` is where the card really was. */
+  move: (
+    item: WorkItem,
+    status: WorkItemStatus,
+    placement?: { expectedProjectOrderVersion: number; beforeId?: string; afterId?: string },
+  ) => Promise<{ previousStatus: WorkItemStatus; placed: boolean } | null>;
   setArchived: (item: WorkItem, archived: boolean) => Promise<boolean>;
   purge: (item: WorkItem, force: boolean) => Promise<boolean>;
   rebind: (item: WorkItem, project: { projectId: string; projectNameSnapshot: string; projectRootSnapshot?: string }) => Promise<boolean>;
-  reorder: (input: { item: WorkItem; expectedProjectOrderVersion: number; beforeId?: string; afterId?: string }) => Promise<boolean>;
   abandon: (input: { workItemId: string; attemptId: string; generation: number; certainty: "not_submitted" | "outcome_unknown_confirmed" }) => Promise<boolean>;
   forget: (input: { workItemId: string; attemptId: string }) => Promise<boolean>;
   check: (workItemId: string, attemptId?: string) => Promise<CheckSummary | null>;
@@ -56,7 +59,6 @@ export function useTodoActions(input: { incarnationId: string; reload: () => Pro
   const rpcEnsure = useRpc(ensureDocument);
   const rpcCreate = useRpc(createWorkItem);
   const rpcUpdate = useRpc(updateWorkItem);
-  const rpcReorder = useRpc(reorderWorkItem);
   const rpcRebind = useRpc(rebindWorkItemProject);
   const rpcMove = useRpc(moveWorkItem);
   const rpcArchived = useRpc(setWorkItemArchived);
@@ -115,9 +117,9 @@ export function useTodoActions(input: { incarnationId: string; reload: () => Pro
         const result = await finish(rpcUpdate({ expectedIncarnationId: incarnationId, id: item.id, expectedVersion: item.version, patch }));
         return result?.status === "ok";
       },
-      async move(item, status) {
-        const result = await finish(rpcMove({ expectedIncarnationId: incarnationId, id: item.id, status }));
-        return result?.status === "ok";
+      async move(item, status, placement) {
+        const result = await finish(rpcMove({ expectedIncarnationId: incarnationId, id: item.id, status, ...(placement ? { placement } : {}) }));
+        return result && result.status === "ok" ? { previousStatus: result.previousStatus, placed: result.placed } : null;
       },
       async setArchived(item, archived) {
         const result = await finish(rpcArchived({ expectedIncarnationId: incarnationId, id: item.id, expectedVersion: item.version, archived }));
@@ -129,19 +131,6 @@ export function useTodoActions(input: { incarnationId: string; reload: () => Pro
       },
       async rebind(item, project) {
         const result = await finish(rpcRebind({ expectedIncarnationId: incarnationId, id: item.id, expectedVersion: item.version, ...project }));
-        return result?.status === "ok";
-      },
-      async reorder(request) {
-        const result = await finish(
-          rpcReorder({
-            expectedIncarnationId: incarnationId,
-            id: request.item.id,
-            expectedVersion: request.item.version,
-            expectedProjectOrderVersion: request.expectedProjectOrderVersion,
-            ...(request.beforeId ? { beforeId: request.beforeId } : {}),
-            ...(request.afterId ? { afterId: request.afterId } : {}),
-          }),
-        );
         return result?.status === "ok";
       },
       async abandon(request) {
@@ -161,6 +150,6 @@ export function useTodoActions(input: { incarnationId: string; reload: () => Pro
         return { checkedAgentCount: result.enqueuedAgentIds.length, linkedAgentCount: result.links.length };
       },
     }),
-    [finish, incarnationId, reload, rpcAbandon, rpcAcquire, rpcArchived, rpcCheck, rpcCreate, rpcEnsure, rpcForget, rpcMove, rpcProgress, rpcPurge, rpcRebind, rpcReorder, rpcUpdate],
+    [finish, incarnationId, reload, rpcAbandon, rpcAcquire, rpcArchived, rpcCheck, rpcCreate, rpcEnsure, rpcForget, rpcMove, rpcProgress, rpcPurge, rpcRebind, rpcUpdate],
   );
 }

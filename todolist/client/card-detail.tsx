@@ -1,17 +1,17 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Icon } from "@getpaseo/plugin/client/react-native";
-import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Modal } from "@getpaseo/plugin/client/react-native";
+import { Text, View } from "react-native";
 import { isAttemptNotSubmitted, isAttemptOutcomeUnknown, isAttemptSettled, stageCertainty } from "../shared/attempt";
-import { WORK_ITEM_STATUS_LABELS } from "../shared/board";
+import { STATUS_REASON_LABELS, formatRelativeTime } from "../shared/board";
 import type { AgentLink, Attempt, WorkItemStatus } from "../shared/schema";
 import { Badge, Button } from "./components";
 import type { WorkItemView } from "./data";
 import { getKnownClientInstanceId } from "./launch";
+import { StatusPicker } from "./move-menu";
 import type { TodoStyles } from "./styles";
 import { AGGREGATE_PRESENTATION, DISPLAY_STATE_PRESENTATION, TEXT } from "./text";
 
-export interface RowActions {
+export interface CardActions {
   execute: (view: WorkItemView) => void;
   resume: (view: WorkItemView, attempt: Attempt) => void;
   retryAnyway: (view: WorkItemView) => void;
@@ -23,11 +23,9 @@ export interface RowActions {
   setArchived: (view: WorkItemView, archived: boolean) => void;
   purge: (view: WorkItemView) => void;
   rebind: (view: WorkItemView) => void;
-  moveUp: (view: WorkItemView) => void;
-  moveDown: (view: WorkItemView) => void;
   openAgent: ((agentId: string) => void) | null;
   openWorkspace: ((workspaceId: string) => void) | null;
-  /** Work item whose manual check is in flight, so only that row shows the busy state. */
+  /** Work item whose manual check is in flight, so only that card shows the busy state. */
   checkingId: string | null;
 }
 
@@ -53,7 +51,7 @@ function AttemptCard(props: {
   view: WorkItemView;
   attempt: Attempt;
   links: AgentLink[];
-  actions: RowActions;
+  actions: CardActions;
   canResume: boolean;
 }) {
   const { styles, theme, attempt, view, actions, links } = props;
@@ -124,28 +122,54 @@ function AttemptCard(props: {
   );
 }
 
-export function WorkItemRow(props: {
+/** Everything about one card. Actions that open another dialog close this one first. */
+export function CardDetail(props: {
+  styles: TodoStyles;
+  theme: PluginTheme;
+  view: WorkItemView | null;
+  onClose: () => void;
+  actions: CardActions;
+  canLaunch: boolean;
+  projectAvailable: boolean;
+  now: number;
+}) {
+  const { view } = props;
+  const item = view?.item;
+  return (
+    <Modal title={item ? `#${item.number} ${item.title}` : "Work item"} open={view !== null} onOpenChange={(open) => !open && props.onClose()}>
+      <Modal.Content>
+        {view ? (
+          <DetailBody
+            styles={props.styles}
+            theme={props.theme}
+            view={view}
+            actions={props.actions}
+            canLaunch={props.canLaunch}
+            projectAvailable={props.projectAvailable}
+            now={props.now}
+          />
+        ) : null}
+      </Modal.Content>
+    </Modal>
+  );
+}
+
+function DetailBody(props: {
   styles: TodoStyles;
   theme: PluginTheme;
   view: WorkItemView;
-  actions: RowActions;
+  actions: CardActions;
   canLaunch: boolean;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
-  compact: boolean;
-  dragHandle?: React.ReactNode;
   projectAvailable: boolean;
+  now: number;
 }) {
   const { styles, theme, view, actions } = props;
-  const [expanded, setExpanded] = useState(false);
-  const [more, setMore] = useState(false);
   const { item, aggregate } = view;
   const presentation = AGGREGATE_PRESENTATION[aggregate.state];
   const archived = Boolean(item.archivedAt);
-  const done = item.status === "done" || item.status === "cancelled";
-  const statusLabel = WORK_ITEM_STATUS_LABELS[item.status];
+  const closed = item.status === "done" || item.status === "cancelled";
   const blocked = aggregate.blockedReason;
-  const executeDisabled = archived || done || blocked !== null || !props.projectAvailable;
+  const executeDisabled = blocked !== null || !props.projectAvailable;
   const executeHint =
     blocked === "claim_held"
       ? "Another launch is pending"
@@ -159,100 +183,58 @@ export function WorkItemRow(props: {
   const unknownPending = aggregate.unknownAttemptIds.length > 0 && aggregate.pendingClaim !== null;
   const checking = actions.checkingId === item.id;
   return (
-    <View style={styles.card} accessibilityLabel={`Work item #${item.number} ${item.title}, ${statusLabel}, ${presentation.label}`}>
-      <View style={styles.row}>
-        {props.dragHandle}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${expanded ? "Collapse" : "Expand"} ${item.title}`}
-          accessibilityState={{ expanded }}
-          onPress={() => setExpanded((value) => !value)}
-          style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8 }}
-        >
-          <Icon name={expanded ? "ChevronDown" : "ChevronRight"} size={16} color={theme.colors.foregroundMuted} />
-          <Text style={[styles.title, done ? { textDecorationLine: "line-through" } : null]} numberOfLines={expanded ? undefined : 2}>
-            {item.title}
-          </Text>
-        </Pressable>
-        <Text style={styles.muted}>{statusLabel}</Text>
+    <>
+      <StatusPicker styles={styles} theme={theme} value={item.status} onChange={(status) => actions.move(view, status)} />
+      <View style={styles.rowWrap}>
         <Badge styles={styles} theme={theme} label={presentation.label} icon={presentation.icon} tone={presentation.tone} />
+        <Text style={styles.mono}>
+          {STATUS_REASON_LABELS[item.statusReason]} · {formatRelativeTime(item.statusChangedAt, props.now)}
+        </Text>
       </View>
-      {!expanded && aggregate.pendingClaim ? (
-        <Text style={styles.muted}>Launch prepared by {aggregate.pendingClaim.initiatorLabel}</Text>
+      {archived ? <Text style={styles.warning}>Archived {formatTime(item.archivedAt)}. It is hidden from the board until restored.</Text> : null}
+      {!props.projectAvailable ? (
+        <Text style={styles.warning}>Project unavailable ({item.projectNameSnapshot}{item.projectRootSnapshot ? ` at ${item.projectRootSnapshot}` : ""}). {TEXT.rebindNotice}</Text>
       ) : null}
-      {expanded ? (
-        <View style={styles.detail}>
-          {item.details ? <Text style={styles.body}>{item.details}</Text> : <Text style={styles.muted}>No details.</Text>}
-          <Text style={styles.mono}>Default prompt: {item.defaultPrompt ? item.defaultPrompt.slice(0, 200) : "(empty)"}</Text>
-          {!props.projectAvailable ? (
-            <Text style={styles.warning}>Project unavailable ({item.projectNameSnapshot}{item.projectRootSnapshot ? ` at ${item.projectRootSnapshot}` : ""}). {TEXT.rebindNotice}</Text>
-          ) : null}
-          <View style={styles.rowWrap}>
-            {!archived && !done ? (
-              <Button styles={styles} theme={theme} label="Execute" icon="Play" variant="primary" disabled={executeDisabled} accessibilityHint={executeHint} onPress={() => actions.execute(view)} />
-            ) : null}
-            {!archived ? (
-              <Button styles={styles} theme={theme} label={done ? "Reopen" : "Mark done"} icon={done ? "RotateCcw" : "Check"} onPress={() => actions.move(view, done ? "todo" : "done")} accessibilityHint="Manual completion; agents and workspaces are not changed" />
-            ) : (
-              <Button styles={styles} theme={theme} label="Restore" icon="ArchiveRestore" onPress={() => actions.setArchived(view, false)} />
-            )}
-            {unknownPending ? (
-              <Button styles={styles} theme={theme} label="Retry anyway" icon="AlertTriangle" variant="danger" disabled={!props.projectAvailable} onPress={() => actions.retryAnyway(view)} accessibilityHint={TEXT.retryAnywayWarning} />
-            ) : null}
-            <Button
-              styles={styles}
-              theme={theme}
-              label="More"
-              icon={more ? "ChevronUp" : "Ellipsis"}
-              accessibilityLabel={`${more ? "Hide" : "Show"} more actions for ${item.title}`}
-              onPress={() => setMore((value) => !value)}
-            />
-          </View>
-          {more ? (
-            <View style={styles.rowWrap}>
-              {!archived ? <Button styles={styles} theme={theme} label="Edit" icon="Pencil" onPress={() => actions.edit(view)} /> : null}
-              <Button styles={styles} theme={theme} label="Rebind project" icon="FolderSync" onPress={() => actions.rebind(view)} />
-              {!archived && !done ? (
-                <>
-                  <Button styles={styles} theme={theme} label="Move up" icon="ArrowUp" disabled={!props.canMoveUp} onPress={() => actions.moveUp(view)} accessibilityLabel={`Move ${item.title} up`} />
-                  <Button styles={styles} theme={theme} label="Move down" icon="ArrowDown" disabled={!props.canMoveDown} onPress={() => actions.moveDown(view)} accessibilityLabel={`Move ${item.title} down`} />
-                </>
-              ) : null}
-              {!archived ? <Button styles={styles} theme={theme} label="Archive" icon="Archive" onPress={() => actions.setArchived(view, true)} /> : null}
-              {archived ? (
-                <Button styles={styles} theme={theme} label="Purge" icon="Trash2" variant="danger" onPress={() => actions.purge(view)} accessibilityHint={blocked ? `Blocked: ${blocked.replace("_", " ")}` : TEXT.purgeWarning} />
-              ) : null}
-            </View>
-          ) : null}
-          {archived && blocked ? <Text style={styles.warning}>Purge is disabled: {blocked.replace("_", " ")}.</Text> : null}
-          {view.attempts.length > 0 ? (
-            <View style={styles.rowWrap}>
-              <Text style={styles.sectionTitle}>Attempts ({view.attempts.length})</Text>
-              <Button
-                styles={styles}
-                theme={theme}
-                label={checking ? "Checking…" : "Check status"}
-                icon="RefreshCw"
-                disabled={checking}
-                onPress={() => actions.check(view)}
-                accessibilityHint={TEXT.checkNotice}
-              />
-            </View>
-          ) : null}
-          {view.attempts.map((attempt) => (
-            <AttemptCard
-              key={attempt.id}
-              styles={styles}
-              theme={theme}
-              view={view}
-              attempt={attempt}
-              links={view.links.filter((link) => link.attemptId === attempt.id)}
-              actions={actions}
-              canResume={props.canLaunch}
-            />
-          ))}
+      {item.details ? <Text style={styles.body}>{item.details}</Text> : <Text style={styles.muted}>No details.</Text>}
+      <Text style={styles.mono}>Default prompt: {item.defaultPrompt ? item.defaultPrompt.slice(0, 200) : "(empty)"}</Text>
+      {aggregate.pendingClaim ? <Text style={styles.muted}>Launch prepared by {aggregate.pendingClaim.initiatorLabel}</Text> : null}
+      <View style={styles.rowWrap}>
+        {!archived && !closed ? (
+          <Button styles={styles} theme={theme} label="Execute" icon="Play" variant="primary" disabled={executeDisabled} accessibilityHint={executeHint} onPress={() => actions.execute(view)} />
+        ) : null}
+        {unknownPending ? (
+          <Button styles={styles} theme={theme} label="Retry anyway" icon="AlertTriangle" variant="danger" disabled={!props.projectAvailable} onPress={() => actions.retryAnyway(view)} accessibilityHint={TEXT.retryAnywayWarning} />
+        ) : null}
+        {!archived ? <Button styles={styles} theme={theme} label="Edit" icon="Pencil" onPress={() => actions.edit(view)} /> : null}
+        <Button styles={styles} theme={theme} label="Rebind project" icon="FolderSync" onPress={() => actions.rebind(view)} />
+        {archived ? (
+          <>
+            <Button styles={styles} theme={theme} label="Restore" icon="ArchiveRestore" onPress={() => actions.setArchived(view, false)} />
+            <Button styles={styles} theme={theme} label="Purge" icon="Trash2" variant="danger" onPress={() => actions.purge(view)} accessibilityHint={blocked ? `Blocked: ${blocked.replace("_", " ")}` : TEXT.purgeWarning} />
+          </>
+        ) : (
+          <Button styles={styles} theme={theme} label="Archive" icon="Archive" onPress={() => actions.setArchived(view, true)} />
+        )}
+      </View>
+      {archived && blocked ? <Text style={styles.warning}>Purge is disabled: {blocked.replace("_", " ")}.</Text> : null}
+      {view.attempts.length > 0 ? (
+        <View style={styles.rowWrap}>
+          <Text style={styles.sectionTitle}>Attempts ({view.attempts.length})</Text>
+          <Button styles={styles} theme={theme} label={checking ? "Checking…" : "Check status"} icon="RefreshCw" disabled={checking} onPress={() => actions.check(view)} accessibilityHint={TEXT.checkNotice} />
         </View>
       ) : null}
-    </View>
+      {view.attempts.map((attempt) => (
+        <AttemptCard
+          key={attempt.id}
+          styles={styles}
+          theme={theme}
+          view={view}
+          attempt={attempt}
+          links={view.links.filter((link) => link.attemptId === attempt.id)}
+          actions={actions}
+          canResume={props.canLaunch}
+        />
+      ))}
+    </>
   );
 }

@@ -1,5 +1,36 @@
-import type { TodoAgentDisplayState } from "../shared/schema";
+import type { TodoAgentDisplayState, WorkItemStatus } from "../shared/schema";
 import type { WorkItemAggregateState } from "../shared/state";
+
+type StatusColor = "foregroundMuted" | "statusWarning" | "statusDanger" | "statusSuccess" | "accent";
+
+/** Column icon and theme color; the label always sits next to them. */
+export const STATUS_PRESENTATION: Record<WorkItemStatus, { icon: string; color: StatusColor }> = {
+  backlog: { icon: "CircleDashed", color: "foregroundMuted" },
+  todo: { icon: "Circle", color: "foregroundMuted" },
+  in_progress: { icon: "CircleDot", color: "statusWarning" },
+  in_review: { icon: "Eye", color: "accent" },
+  done: { icon: "CircleCheck", color: "statusSuccess" },
+  cancelled: { icon: "CircleX", color: "statusDanger" },
+};
+
+export const DISPLAY_STATE_COLOR: Record<TodoAgentDisplayState, StatusColor> = {
+  initializing: "accent",
+  running: "accent",
+  permission: "statusWarning",
+  error: "statusDanger",
+  waiting_confirmation: "statusSuccess",
+  closed: "foregroundMuted",
+  unavailable: "foregroundMuted",
+};
+
+/** Aggregate states worth a badge on a card; running and finished already show in the agent line. */
+export const CARD_BADGE_STATES: ReadonlySet<WorkItemAggregateState> = new Set([
+  "permission",
+  "error",
+  "pending_launch",
+  "outcome_unknown",
+  "stale",
+]);
 
 /** Every state has an icon and a label; color is never the only signal. */
 export const AGGREGATE_PRESENTATION: Record<WorkItemAggregateState, { label: string; icon: string; tone: "default" | "warning" | "danger" | "success" }> = {

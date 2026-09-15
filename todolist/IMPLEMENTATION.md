@@ -119,7 +119,32 @@ Normative source: `/home/yangfei/Private/Dw-Plans/paseo-todo-kanban-plan.md`, br
   Tests: `test/board.test.ts` (14), `test/migration.test.ts` (5), move, number and acquire cases in
   `test/mutations.test.ts`, one reconciler path, and the E2E launch → In progress → In review →
   move flow. A dry run on a copy of the live document migrated both open items to In review.
-- [ ] Stage 2: board UI
+- [x] Stage 2, board UI:
+  - one project per board, with a picker remembered in `todo-prefs.boardProjectId`;
+  - Active / All / Backlog / Cancelled / Archived filters and search by number, title and details;
+  - columns side by side when they fit (240 px each), a horizontally scrolling row when at least two
+    fit, and status tabs below that; the page itself keeps scrolling vertically;
+  - cards with number, title, details excerpt, attention badges and the latest agent line;
+  - the move menu (column chips, Move up / Move down), creating into a column, and the card detail
+    that replaces the expanded list row. Actions that open another dialog close the detail first.
+
+  The old list (`todo-list.tsx`, `work-item-row.tsx`) is gone. Tests: board grouping, filters,
+  search, neighbours, layout, relative time and latest agent in `test/board.test.ts`.
+
+  Verified in the web app against an isolated dev daemon at 1440 px and 400 px wide: create into a
+  column, Move up, move from the menu and the detail, archive, the Archived list, search, status tabs,
+  the move menu, detail and editor bottom sheets, Execute opening from the detail, and switching
+  projects across a reload. That pass also fixed a card that nested buttons (invalid on the web),
+  exposed chip selection to assistive technology, and narrowed columns so four fit beside the host
+  sidebar.
+
+  Not verified yet:
+  - Android and iOS native;
+  - the agent line with real agents, since the dev daemon had no provider;
+  - an unavailable project.
+
+  Known issue predating the board: a project added while Todo is open only reaches the plugin's
+  project list after a reload.
 - [ ] Stage 3: drag to In progress runs or continues the agent
 - [ ] Stage 4: drag and drop on wide layouts
 - [ ] Stage 5: docs, benchmark, smoke flows, data backup before deploy

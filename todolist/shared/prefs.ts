@@ -22,6 +22,8 @@ export const TodoPrefsSchema = z.object({
   thinkingOptionId: z.string().default(""),
   /** Last successful launch target for each project; shared by the surface and workspace panel. */
   workspaceByProject: z.record(z.string(), z.string()).default({}),
+  /** Project the global board showed last; the workspace panel always shows its own project. */
+  boardProjectId: z.string().default(""),
 });
 export type TodoPrefs = z.output<typeof TodoPrefsSchema>;
 

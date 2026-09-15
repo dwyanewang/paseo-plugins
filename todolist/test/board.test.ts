@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { applyAgentSnapshotMutation, canonicalizeAgentSnapshot, markAgentLinkStaleMutation } from "../server/apply";
 import { moveWorkItemMutation, reportLaunchProgressMutation } from "../server/mutations";
-import { deriveAutoMove } from "../shared/board";
+import {
+  boardLayout,
+  buildBoard,
+  deriveAutoMove,
+  formatRelativeTime,
+  latestLink,
+  matchesSearch,
+  neighboursAt,
+} from "../shared/board";
 import { buildTodoLabels } from "../shared/labels";
-import type { TodoDocument, WorkItemStatus } from "../shared/schema";
+import { rankFromInteger } from "../shared/rank";
+import type { AgentLink, TodoDocument, WorkItem, WorkItemStatus } from "../shared/schema";
 import { fakeAgent } from "./helpers/fake-paseo";
 import { NOW, baseDocument, withClaim, withWorkItem } from "./helpers/setup";
 
@@ -174,5 +183,109 @@ describe("agent-driven moves (R2, R3)", () => {
     const active = commit(snapshot(launched(), "agent-1", "running"));
     const stale = markAgentLinkStaleMutation(active, { agentId: "agent-1", errorCode: "transport" }, NOW);
     expect(status(commit(stale))).toBe("in_progress");
+  });
+});
+
+function card(id: string, patch: Partial<WorkItem> = {}): { item: WorkItem } {
+  const index = Number(id.replace(/\D/g, "")) || 1;
+  return {
+    item: {
+      id,
+      creationFingerprint: "f",
+      version: 1,
+      number: index,
+      projectId: "project-1",
+      projectNameSnapshot: "Project",
+      title: `Item ${id}`,
+      details: "",
+      defaultPrompt: "",
+      status: "todo",
+      statusChangedAt: NOW,
+      statusReason: "created",
+      rank: rankFromInteger(index * 1000),
+      createdAt: NOW,
+      updatedAt: NOW,
+      ...patch,
+    },
+  };
+}
+
+describe("board grouping", () => {
+  const cards = [
+    card("wi-3", { status: "in_progress" }),
+    card("wi-1"),
+    card("wi-2", { rank: rankFromInteger(500) }),
+    card("wi-4", { status: "backlog" }),
+    card("wi-5", { status: "cancelled" }),
+    card("wi-6", { status: "done", archivedAt: "2026-09-11T11:00:00.000Z" }),
+    card("wi-7", { archivedAt: "2026-09-11T12:00:00.000Z" }),
+    card("wi-8", { projectId: "project-2" }),
+  ];
+  const ids = (views: readonly { item: WorkItem }[]) => views.map((view) => view.item.id);
+
+  it("shows the four active columns in rank order and leaves other projects and archived cards out", () => {
+    const board = buildBoard(cards, { projectId: "project-1", filter: "active", query: "" });
+    expect(board.columns.map((column) => column.status)).toEqual(["todo", "in_progress", "in_review", "done"]);
+    expect(ids(board.columns[0]!.views)).toEqual(["wi-2", "wi-1"]);
+    expect(ids(board.columns[1]!.views)).toEqual(["wi-3"]);
+    expect(board.columns[3]!.views).toEqual([]);
+    expect(board.archived).toEqual([]);
+  });
+
+  it("maps each filter to its columns and lists archived cards newest first", () => {
+    const statuses = (filter: "all" | "backlog" | "cancelled") =>
+      buildBoard(cards, { projectId: "project-1", filter, query: "" }).columns.map((column) => column.status);
+    expect(statuses("all")).toEqual(["backlog", "todo", "in_progress", "in_review", "done", "cancelled"]);
+    expect(statuses("backlog")).toEqual(["backlog"]);
+    expect(statuses("cancelled")).toEqual(["cancelled"]);
+    const archived = buildBoard(cards, { projectId: "project-1", filter: "archived", query: "" });
+    expect(archived.columns).toEqual([]);
+    expect(ids(archived.archived)).toEqual(["wi-7", "wi-6"]);
+  });
+
+  it("searches the number, title and details without case", () => {
+    const item = card("wi-12", { title: "Fix Login", details: "OAuth callback" }).item;
+    expect(matchesSearch(item, "#12")).toBe(true);
+    expect(matchesSearch(item, "12")).toBe(true);
+    expect(matchesSearch(item, "#1")).toBe(false);
+    expect(matchesSearch(item, "login")).toBe(true);
+    expect(matchesSearch(item, "  oauth ")).toBe(true);
+    expect(matchesSearch(item, "logout")).toBe(false);
+    expect(ids(buildBoard(cards, { projectId: "project-1", filter: "active", query: "#3" }).columns.flatMap((column) => column.views))).toEqual(["wi-3"]);
+  });
+
+  it("finds drop neighbours for moving a card up or down a column", () => {
+    const column = ["a", "b", "c", "d"];
+    expect(neighboursAt(column, "c", 1)).toEqual({ beforeId: "a", afterId: "b" });
+    expect(neighboursAt(column, "b", 2)).toEqual({ beforeId: "c", afterId: "d" });
+    expect(neighboursAt(column, "b", 0)).toEqual({ afterId: "a" });
+    expect(neighboursAt(column, "c", 3)).toEqual({ beforeId: "d" });
+    expect(neighboursAt(column, "c", 99)).toEqual({ beforeId: "d" });
+  });
+});
+
+describe("board presentation", () => {
+  it("lays columns side by side, scrolls them, or falls back to tabs by width", () => {
+    expect(boardLayout(4 * 240 + 3 * 12, 4, 12)).toBe("columns");
+    expect(boardLayout(4 * 240 + 3 * 12 - 1, 4, 12)).toBe("scroll");
+    expect(boardLayout(2 * 240 + 12, 4, 12)).toBe("scroll");
+    expect(boardLayout(2 * 240 + 11, 4, 12)).toBe("tabs");
+    expect(boardLayout(100, 1, 12)).toBe("columns");
+  });
+
+  it("picks the agent whose state changed last", () => {
+    const link = (agentId: string, stateChangedAt: string) => ({ agentId, stateChangedAt }) as AgentLink;
+    expect(latestLink([])).toBeUndefined();
+    expect(latestLink([link("a", "2026-09-11T10:00:00.000Z"), link("b", "2026-09-11T11:00:00.000Z"), link("c", "2026-09-11T09:00:00.000Z")])?.agentId).toBe("b");
+  });
+
+  it("formats relative times", () => {
+    const now = Date.parse("2026-09-15T12:00:00.000Z");
+    expect(formatRelativeTime("2026-09-15T11:59:30.000Z", now)).toBe("just now");
+    expect(formatRelativeTime("2026-09-15T11:55:00.000Z", now)).toBe("5 min ago");
+    expect(formatRelativeTime("2026-09-15T09:00:00.000Z", now)).toBe("3 h ago");
+    expect(formatRelativeTime("2026-09-13T12:00:00.000Z", now)).toBe("2 d ago");
+    expect(formatRelativeTime("2026-09-15T12:01:00.000Z", now)).toBe("just now");
+    expect(formatRelativeTime("not a date", now)).toBe("");
   });
 });

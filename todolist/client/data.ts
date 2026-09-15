@@ -5,7 +5,6 @@ import { useCallback, useMemo } from "react";
 import type { TodoError } from "../shared/contracts";
 import { todoData, type AgentLink, type Attempt, type LaunchClaim, type TodoDocument, type WorkItem } from "../shared/schema";
 import { aggregateWorkItem, type WorkItemAggregate } from "../shared/state";
-import { compareRanks } from "../shared/rank";
 
 /**
  * Plugin-local read-only adapter over the host Settings todo. Business components never see
@@ -68,35 +67,6 @@ export function buildWorkItemViews(todo: TodoDocument): Map<string, WorkItemView
     views.set(item.id, { item, claim, attempts, links, aggregate: aggregateWorkItem({ item, claim, attempts, links }) });
   }
   return views;
-}
-
-export interface ProjectGroup {
-  projectId: string;
-  open: WorkItemView[];
-  done: WorkItemView[];
-  archived: WorkItemView[];
-}
-
-export function groupByProject(views: Iterable<WorkItemView>): Map<string, ProjectGroup> {
-  const groups = new Map<string, ProjectGroup>();
-  for (const view of views) {
-    const group = groups.get(view.item.projectId) ?? {
-      projectId: view.item.projectId,
-      open: [],
-      done: [],
-      archived: [],
-    };
-    if (view.item.archivedAt) group.archived.push(view);
-    else if (view.item.status === "done" || view.item.status === "cancelled") group.done.push(view);
-    else group.open.push(view);
-    groups.set(view.item.projectId, group);
-  }
-  for (const group of groups.values()) {
-    group.open.sort((left, right) => compareRanks(left.item.rank, right.item.rank));
-    group.done.sort((left, right) => (right.item.completedAt ?? "").localeCompare(left.item.completedAt ?? ""));
-    group.archived.sort((left, right) => (right.item.archivedAt ?? "").localeCompare(left.item.archivedAt ?? ""));
-  }
-  return groups;
 }
 
 export function useWorkItemViews(todo: TodoDocument | null): Map<string, WorkItemView> {

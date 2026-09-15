@@ -70,6 +70,41 @@ export function Badge(props: {
   );
 }
 
+export function Chip(props: {
+  styles: TodoStyles;
+  theme: PluginTheme;
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+  icon?: string;
+  iconColor?: string;
+  role?: "tab" | "radio";
+  accessibilityLabel?: string;
+}) {
+  const { styles, selected } = props;
+  const role = props.role ?? "tab";
+  return (
+    <Pressable
+      accessibilityRole={role}
+      accessibilityState={{ selected, checked: selected }}
+      // React Native Web only forwards selection to the accessibility tree through ARIA props.
+      {...(role === "tab" ? { "aria-selected": selected } : { "aria-checked": selected })}
+      accessibilityLabel={props.accessibilityLabel ?? props.label}
+      onPress={props.onPress}
+      style={[styles.chip, selected ? styles.chipSelected : null]}
+    >
+      {props.icon ? (
+        <Icon
+          name={props.icon}
+          size={13}
+          color={selected ? props.theme.colors.accentForeground : (props.iconColor ?? props.theme.colors.foregroundMuted)}
+        />
+      ) : null}
+      <Text style={selected ? styles.chipSelectedText : styles.chipText}>{props.label}</Text>
+    </Pressable>
+  );
+}
+
 export function Notice(props: { styles: TodoStyles; kind?: "info" | "warning" | "danger"; children: ReactNode; title?: string }) {
   const { styles } = props;
   return (

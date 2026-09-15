@@ -10,6 +10,7 @@ describe("launch preferences", () => {
       modeId: "auto",
       thinkingOptionId: "",
       workspaceByProject: {},
+      boardProjectId: "",
     });
   });
 
