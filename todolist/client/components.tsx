@@ -8,7 +8,7 @@ export function Button(props: {
   styles: TodoStyles;
   label: string;
   onPress: () => void;
-  variant?: "primary" | "secondary" | "danger";
+  variant?: "primary" | "secondary" | "danger" | "ghost";
   disabled?: boolean;
   accessibilityLabel?: string;
   accessibilityHint?: string;
@@ -23,7 +23,9 @@ export function Button(props: {
       ? props.theme.colors.accentForeground
       : variant === "danger"
         ? props.theme.colors.statusDanger
-        : props.theme.colors.foreground;
+        : variant === "ghost"
+          ? props.theme.colors.foregroundMuted
+          : props.theme.colors.foreground;
   return (
     <Pressable
       accessibilityRole="button"
@@ -32,19 +34,69 @@ export function Button(props: {
       accessibilityState={{ disabled: Boolean(props.disabled) }}
       disabled={props.disabled}
       onPress={props.onPress}
-      style={[
+      style={({ hovered, pressed }: { hovered?: boolean; pressed: boolean }) => [
         styles.button,
         variant === "primary" ? styles.buttonPrimary : null,
         variant === "danger" ? styles.buttonDanger : null,
+        variant === "ghost" ? styles.buttonGhost : null,
+        (hovered || pressed) && !props.disabled ? { opacity: variant === "primary" ? 0.88 : 1, borderColor: variant === "secondary" ? props.theme.colors.foregroundMuted : undefined } : null,
         props.disabled ? styles.buttonDisabled : null,
       ]}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
         {props.icon ? <Icon name={props.icon} size={14} color={iconColor} /> : null}
-        <Text style={textStyle}>{props.label}</Text>
+        <Text style={textStyle} numberOfLines={1}>
+          {props.label}
+        </Text>
       </View>
     </Pressable>
   );
+}
+
+/** A square, label-less button. The label still reaches assistive technology. */
+export function IconButton(props: {
+  styles: TodoStyles;
+  theme: PluginTheme;
+  icon: string;
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  accessibilityHint?: string;
+  /** Resting opacity, for controls that only matter on hover or focus. */
+  dim?: boolean;
+  bordered?: boolean;
+}) {
+  const { styles, theme } = props;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={props.label}
+      accessibilityHint={props.accessibilityHint}
+      accessibilityState={{ disabled: Boolean(props.disabled) }}
+      disabled={props.disabled}
+      hitSlop={6}
+      onPress={props.onPress}
+      style={({ hovered, pressed }: { hovered?: boolean; pressed: boolean }) => [
+        styles.iconButton,
+        props.bordered ? { width: 32, height: 32, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface1, borderRadius: 8 } : null,
+        hovered || pressed ? { backgroundColor: theme.colors.surface2 } : null,
+        props.dim && !hovered && !pressed ? { opacity: 0.55 } : null,
+        props.disabled ? styles.buttonDisabled : null,
+      ]}
+    >
+      <Icon name={props.icon} size={15} color={theme.colors.foregroundMuted} />
+    </Pressable>
+  );
+}
+
+export function toneColor(theme: PluginTheme, tone: "default" | "warning" | "danger" | "success" | undefined): string {
+  return tone === "warning"
+    ? theme.colors.statusWarning
+    : tone === "danger"
+      ? theme.colors.statusDanger
+      : tone === "success"
+        ? theme.colors.statusSuccess
+        : theme.colors.foregroundMuted;
 }
 
 export function Badge(props: {
@@ -54,18 +106,13 @@ export function Badge(props: {
   icon: string;
   tone?: "default" | "warning" | "danger" | "success";
 }) {
-  const color =
-    props.tone === "warning"
-      ? props.theme.colors.statusWarning
-      : props.tone === "danger"
-        ? props.theme.colors.statusDanger
-        : props.tone === "success"
-          ? props.theme.colors.statusSuccess
-          : props.theme.colors.foregroundMuted;
+  const color = toneColor(props.theme, props.tone);
   return (
     <View style={props.styles.badge} accessibilityRole="text" accessibilityLabel={`Status: ${props.label}`}>
-      <Icon name={props.icon} size={12} color={color} />
-      <Text style={[props.styles.badgeText, { color }]}>{props.label}</Text>
+      <Icon name={props.icon} size={11} color={color} />
+      <Text style={[props.styles.badgeText, props.tone && props.tone !== "default" ? { color } : null]} numberOfLines={1}>
+        {props.label}
+      </Text>
     </View>
   );
 }
@@ -80,8 +127,10 @@ export function Chip(props: {
   iconColor?: string;
   role?: "tab" | "radio" | "button";
   accessibilityLabel?: string;
+  /** Trailing text in a quieter color, such as a count. */
+  trailing?: string;
 }) {
-  const { styles, selected } = props;
+  const { styles, selected, theme } = props;
   const role = props.role ?? "tab";
   return (
     <Pressable
@@ -91,33 +140,75 @@ export function Chip(props: {
       {...(role === "tab" ? { "aria-selected": selected } : role === "radio" ? { "aria-checked": selected } : {})}
       accessibilityLabel={props.accessibilityLabel ?? props.label}
       onPress={props.onPress}
-      style={[styles.chip, selected ? styles.chipSelected : null]}
+      style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [
+        styles.chip,
+        hovered && !selected ? { borderColor: theme.colors.foregroundMuted } : null,
+        selected ? styles.chipSelected : null,
+      ]}
     >
-      {props.icon ? (
-        <Icon
-          name={props.icon}
-          size={13}
-          color={selected ? props.theme.colors.accentForeground : (props.iconColor ?? props.theme.colors.foregroundMuted)}
-        />
-      ) : null}
-      <Text style={selected ? styles.chipSelectedText : styles.chipText}>{props.label}</Text>
+      {props.icon ? <Icon name={props.icon} size={13} color={props.iconColor ?? theme.colors.foregroundMuted} /> : null}
+      <Text style={selected ? styles.chipSelectedText : styles.chipText} numberOfLines={1}>
+        {props.label}
+      </Text>
+      {props.trailing ? <Text style={styles.metaText}>{props.trailing}</Text> : null}
     </Pressable>
   );
 }
 
-export function Notice(props: { styles: TodoStyles; kind?: "info" | "warning" | "danger"; children: ReactNode; title?: string }) {
+/** A compact tab strip: one selected value out of a handful. */
+export function Segmented<Value extends string>(props: {
+  styles: TodoStyles;
+  label: string;
+  value: Value;
+  options: readonly { value: Value; label: string }[];
+  onChange: (value: Value) => void;
+}) {
   const { styles } = props;
+  return (
+    <View accessibilityRole="tablist" accessibilityLabel={props.label} style={styles.segmented}>
+      {props.options.map((option) => {
+        const selected = option.value === props.value;
+        return (
+          <Pressable
+            key={option.value}
+            accessibilityRole="tab"
+            accessibilityState={{ selected }}
+            aria-selected={selected}
+            accessibilityLabel={option.label}
+            onPress={() => props.onChange(option.value)}
+            style={[styles.segment, selected ? styles.segmentSelected : null]}
+          >
+            <Text style={selected ? styles.segmentSelectedText : styles.segmentText} numberOfLines={1}>
+              {option.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+export function Notice(props: { styles: TodoStyles; theme: PluginTheme; kind?: "info" | "warning" | "danger"; children: ReactNode; title?: string }) {
+  const { styles, theme } = props;
+  const icon = props.kind === "danger" ? "CircleAlert" : props.kind === "warning" ? "TriangleAlert" : "Info";
+  const color = toneColor(theme, props.kind === "info" || !props.kind ? "default" : props.kind);
   return (
     <View
       accessibilityRole="alert"
       style={[
         styles.notice,
+        { flexDirection: "row", alignItems: "flex-start", gap: 10 },
         props.kind === "warning" ? styles.noticeWarning : null,
         props.kind === "danger" ? styles.noticeDanger : null,
       ]}
     >
-      {props.title ? <Text style={styles.title}>{props.title}</Text> : null}
-      {typeof props.children === "string" ? <Text style={styles.body}>{props.children}</Text> : props.children}
+      <View style={{ paddingTop: 2 }}>
+        <Icon name={icon} size={15} color={color} />
+      </View>
+      <View style={{ flex: 1, gap: 4 }}>
+        {props.title ? <Text style={[styles.body, { fontWeight: "600" }]}>{props.title}</Text> : null}
+        {typeof props.children === "string" ? <Text style={styles.body}>{props.children}</Text> : props.children}
+      </View>
     </View>
   );
 }
@@ -132,24 +223,42 @@ export function Field(props: {
   placeholder?: string;
   editable?: boolean;
   hint?: string;
+  autoFocus?: boolean;
+  monospace?: boolean;
 }) {
   const { styles } = props;
   return (
-    <View style={{ gap: 4 }}>
-      <Text style={styles.muted}>{props.label}</Text>
+    <View style={{ gap: 6 }}>
+      <Text style={styles.fieldLabel}>{props.label}</Text>
       <TextInput
         accessibilityLabel={props.label}
         value={props.value}
         onChangeText={props.onChangeText}
         multiline={props.multiline}
         editable={props.editable ?? true}
+        autoFocus={props.autoFocus}
         placeholder={props.placeholder}
         placeholderTextColor={props.theme.colors.foregroundMuted}
-        style={[styles.input, props.multiline ? styles.inputMultiline : null]}
+        style={[styles.input, props.multiline ? styles.inputMultiline : null, props.monospace ? { fontFamily: "monospace", fontSize: 12 } : null]}
       />
       {props.hint ? <Text style={styles.mono}>{props.hint}</Text> : null}
     </View>
   );
+}
+
+/** A labelled group inside a dialog. */
+export function FormLabel(props: { styles: TodoStyles; label: string; children: ReactNode }) {
+  return (
+    <View style={{ gap: 6 }}>
+      <Text style={props.styles.fieldLabel}>{props.label}</Text>
+      {props.children}
+    </View>
+  );
+}
+
+/** Dialog footer: secondary actions first, the primary one last, all aligned to the end. */
+export function DialogActions(props: { styles: TodoStyles; children: ReactNode }) {
+  return <View style={[props.styles.rowWrap, { justifyContent: "flex-end", paddingTop: 4 }]}>{props.children}</View>;
 }
 
 export function ConfirmModal(props: {
@@ -171,35 +280,39 @@ export function ConfirmModal(props: {
     <Modal title={props.title} open={props.open} onOpenChange={props.onOpenChange}>
       <Modal.Content>
         <Text style={styles.body}>{props.message}</Text>
-        {props.requireDouble && !props.armed ? (
-          <Button styles={styles} theme={props.theme} label="I understand, continue" onPress={props.onArm} variant="danger" />
-        ) : (
-          <Button
-            styles={styles}
-            theme={props.theme}
-            label={props.confirmLabel}
-            onPress={props.onConfirm}
-            variant={props.danger ? "danger" : "primary"}
-          />
-        )}
-        <Button styles={styles} theme={props.theme} label="Cancel" onPress={() => props.onOpenChange(false)} />
+        {props.requireDouble && props.armed ? <Text style={styles.warning}>Confirm once more to continue.</Text> : null}
+        <DialogActions styles={styles}>
+          <Button styles={styles} theme={props.theme} label="Cancel" onPress={() => props.onOpenChange(false)} />
+          {props.requireDouble && !props.armed ? (
+            <Button styles={styles} theme={props.theme} label="I understand, continue" onPress={props.onArm} variant="danger" />
+          ) : (
+            <Button
+              styles={styles}
+              theme={props.theme}
+              label={props.confirmLabel}
+              onPress={props.onConfirm}
+              variant={props.danger ? "danger" : "primary"}
+            />
+          )}
+        </DialogActions>
       </Modal.Content>
     </Modal>
   );
 }
 
+/** A radio list: each option on its own row, with an optional second line. */
 export function Select<Value extends string>(props: {
   styles: TodoStyles;
   theme: PluginTheme;
   label: string;
   value: Value | null;
-  options: readonly { value: Value; label: string; hint?: string }[];
+  options: readonly { value: Value; label: string; hint?: string; icon?: string }[];
   onChange: (value: Value) => void;
 }) {
-  const { styles } = props;
+  const { styles, theme } = props;
   return (
-    <View style={{ gap: 4 }} accessibilityRole="radiogroup" accessibilityLabel={props.label}>
-      <Text style={styles.muted}>{props.label}</Text>
+    <View style={{ gap: 6 }} accessibilityRole="radiogroup" accessibilityLabel={props.label}>
+      <Text style={styles.fieldLabel}>{props.label}</Text>
       {props.options.map((option) => {
         const selected = option.value === props.value;
         return (
@@ -207,14 +320,27 @@ export function Select<Value extends string>(props: {
             key={option.value}
             accessibilityRole="radio"
             accessibilityState={{ selected, checked: selected }}
+            aria-checked={selected}
             accessibilityLabel={`${option.label}${selected ? ", selected" : ""}`}
             onPress={() => props.onChange(option.value)}
-            style={[styles.button, selected ? styles.buttonPrimary : null]}
+            style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [
+              styles.listRow,
+              hovered && !selected ? { borderColor: theme.colors.foregroundMuted } : null,
+              selected ? styles.listRowSelected : null,
+            ]}
           >
-            <Text style={selected ? styles.buttonPrimaryText : styles.buttonText}>{option.label}</Text>
-            {option.hint ? (
-              <Text style={[styles.mono, selected ? { color: props.theme.colors.accentForeground } : null]}>{option.hint}</Text>
-            ) : null}
+            <Icon name={option.icon ?? (selected ? "CircleDot" : "Circle")} size={15} color={selected ? theme.colors.accent : theme.colors.foregroundMuted} />
+            <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
+              <Text style={[styles.body, { fontWeight: selected ? "600" : "500" }]} numberOfLines={1}>
+                {option.label}
+              </Text>
+              {option.hint ? (
+                <Text style={styles.mono} numberOfLines={1}>
+                  {option.hint}
+                </Text>
+              ) : null}
+            </View>
+            {selected ? <Icon name="Check" size={15} color={theme.colors.accent} /> : null}
           </Pressable>
         );
       })}

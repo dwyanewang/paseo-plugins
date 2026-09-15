@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import { validateWorkItemFields } from "../shared/limits";
 import type { WorkItem, WorkItemPriority } from "../shared/schema";
-import { Button, Field, Notice, Select } from "./components";
+import { Button, DialogActions, Field, FormLabel, Notice, Select } from "./components";
 import { PriorityPicker, StatusPicker } from "./move-menu";
 import type { ProjectRecord } from "./projects";
 import type { TodoStyles } from "./styles";
@@ -91,31 +91,35 @@ export function WorkItemEditor(props: {
   return (
     <Modal title={item ? "Edit work item" : "New work item"} open={props.open} onOpenChange={props.onOpenChange}>
       <Modal.Content>
-        <Field styles={styles} theme={theme} label="Title" value={title} onChangeText={setTitle} placeholder="What needs to happen" />
+        <Field styles={styles} theme={theme} label="Title" value={title} onChangeText={setTitle} placeholder="What needs to happen" autoFocus={!item} />
         <Field styles={styles} theme={theme} label="Details" value={details} onChangeText={setDetails} multiline placeholder="Notes for you (not sent to the agent unless you put them in the prompt)" />
         <Field styles={styles} theme={theme} label="Default prompt" value={defaultPrompt} onChangeText={setDefaultPrompt} multiline placeholder="Seed prompt used when you execute this item" />
-        <Text style={styles.muted}>Priority</Text>
-        <PriorityPicker styles={styles} theme={theme} value={priority} onChange={setPriority} />
+        <View style={[styles.rowWrap, { gap: 16, alignItems: "flex-start" }]}>
+          <FormLabel styles={styles} label="Priority">
+            <PriorityPicker styles={styles} theme={theme} value={priority} onChange={setPriority} />
+          </FormLabel>
+          {!item ? (
+            <FormLabel styles={styles} label="Column">
+              <StatusPicker styles={styles} theme={theme} value={status} statuses={STARTING_STATUSES} onChange={(next) => setStatus(next as StartingStatus)} />
+            </FormLabel>
+          ) : null}
+        </View>
         {item ? (
-          <Text style={styles.muted}>Project: {item.projectNameSnapshot}. Use Rebind project to move it.</Text>
+          <Text style={styles.mono}>Project: {item.projectNameSnapshot}. Use Rebind project to move it.</Text>
         ) : (
-          <>
-            <Select styles={styles} theme={theme} label="Project" value={projectId} options={options} onChange={setProjectId} />
-            <Text style={styles.muted}>Column</Text>
-            <StatusPicker styles={styles} theme={theme} value={status} statuses={STARTING_STATUSES} onChange={(next) => setStatus(next as StartingStatus)} />
-          </>
+          <Select styles={styles} theme={theme} label="Project" value={projectId} options={options} onChange={setProjectId} />
         )}
         {invalid ? (
-          <Notice styles={styles} kind="warning">{`${invalid.field} is ${invalid.reason.replace("_", " ")}.`}</Notice>
+          <Notice styles={styles} theme={theme} kind="warning">{`${invalid.field} is ${invalid.reason.replace("_", " ")}.`}</Notice>
         ) : null}
         {!item ? <Text style={styles.mono}>{TEXT.seedNotice}</Text> : null}
-        <View style={styles.rowWrap}>
-          <Button styles={styles} theme={theme} label={item ? "Save" : "Create"} onPress={() => void submit(false)} variant="primary" disabled={!canSubmit} />
+        <DialogActions styles={styles}>
+          <Button styles={styles} theme={theme} label="Cancel" onPress={() => props.onOpenChange(false)} />
           {!item ? (
             <Button styles={styles} theme={theme} label="Create and execute" icon="Play" onPress={() => void submit(true)} disabled={!canSubmit} accessibilityHint="Creates the item, then opens the execute dialog for it" />
           ) : null}
-          <Button styles={styles} theme={theme} label="Cancel" onPress={() => props.onOpenChange(false)} />
-        </View>
+          <Button styles={styles} theme={theme} label={item ? "Save" : "Create"} onPress={() => void submit(false)} variant="primary" disabled={!canSubmit} />
+        </DialogActions>
       </Modal.Content>
     </Modal>
   );
@@ -154,9 +158,10 @@ export function RebindModal(props: {
   return (
     <Modal title="Rebind project" open={props.open} onOpenChange={props.onOpenChange}>
       <Modal.Content>
-        <Notice styles={styles}>{TEXT.rebindNotice}</Notice>
+        <Notice styles={styles} theme={theme}>{TEXT.rebindNotice}</Notice>
         <Select styles={styles} theme={theme} label="New project" value={projectId} options={options} onChange={setProjectId} />
-        <View style={styles.rowWrap}>
+        <DialogActions styles={styles}>
+          <Button styles={styles} theme={theme} label="Cancel" onPress={() => props.onOpenChange(false)} />
           <Button
             styles={styles}
             theme={theme}
@@ -170,8 +175,7 @@ export function RebindModal(props: {
                 .then((ok) => ok && props.onOpenChange(false));
             }}
           />
-          <Button styles={styles} theme={theme} label="Cancel" onPress={() => props.onOpenChange(false)} />
-        </View>
+        </DialogActions>
       </Modal.Content>
     </Modal>
   );

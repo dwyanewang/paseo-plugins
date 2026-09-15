@@ -28,7 +28,8 @@ branch, which adds the two generic core extensions this plugin needs:
 | `server/mutations.ts`, `server/apply.ts` | Pure mutations; snapshot apply with correlation discovery ahead of the projection gate. |
 | `server/reconcile.ts` | Bootstrap scan (single subscribe), live upserts/removes, targeted refresh, periodic scan ∪ known-ID refresh, in-process watermarks and dirty reruns, bounded timeline search. |
 | `client/run.ts` | Direct run: acquire, request-start milestones, `workspace.agents.create`, agent-observation. Same attempt records the composer path writes. |
-| `client/board*.tsx`, `client/card-detail.tsx`, `client/move-menu.tsx`, `client/card-picker.tsx` | Board view: project filter, status filters and search, columns (side by side, scrolling, or status tabs by width), cards, pointer drag between columns on wide layouts, the move menu, the card picker behind a column's "+", and the card detail. |
+| `client/board*.tsx`, `client/card-detail.tsx`, `client/move-menu.tsx`, `client/card-picker.tsx` | Board view: project filter, status filters and search, full-height columns that scroll their own cards (side by side, scrolling sideways, or status tabs by width), cards, pointer drag between columns on wide layouts, the move menu, the card picker behind a column's "+", and the card detail. |
+| `client/styles.ts`, `client/components.tsx` | Shared look: spacing and type scale, surfaces derived from the host theme (light or dark), and the buttons, chips, segmented filter, notices, fields and radio lists every screen uses. |
 | `client/continue-modal.tsx`, `client/follow-up.ts` | Moving into In progress: the follow-up and approval dialog, and the stable-message-ID send. |
 | `client/` | React Native surface, sidebar item, workspace panel, settings screen, launch flows, recovery screen. |
 
@@ -45,9 +46,13 @@ branch, which adds the two generic core extensions this plugin needs:
   rebinds them explicitly.
 - After any request-start, every negative result is `outcome_unknown`. Todo never retries or resends;
   "Retry anyway" always creates a new, distinguishable attempt.
-- Execute has two paths. **Start the agent now** creates the agent in an existing workspace and sends
-  the prompt as its first message; **Open the composer** seeds the native draft and you press send.
-  Both write the same claim, attempt and correlation labels, so they read and reconcile identically.
+- Execute has two paths. **Start the agent now** creates the agent in an existing workspace, or in a
+  new worktree cut for this run in git projects, and sends the prompt as its first message; **Open
+  the composer** seeds the native draft and you press send. Both write the same claim, attempt and
+  correlation labels, so they read and reconcile identically.
+- A new worktree gets a branch named after the card (`todo-<number>-<title>-<suffix>`, editable) from
+  the project's default branch unless another base is given. Creating the worktree is a
+  request-start: if it fails, the attempt is `outcome_unknown` and nothing is retried.
 - Direct execution offers the selected model's **Thinking** options, using the same provider
   catalog as agent profiles. Successful launches remember the choices across clients and reloads.
   Each project remembers its own workspace; a saved workspace takes precedence over the current
@@ -68,8 +73,10 @@ branch, which adds the two generic core extensions this plugin needs:
   - In progress's "+" picks one card from To do or Backlog;
   - Done's "+" picks any number of cards from In review;
   - In review and Cancelled have no "+".
-- On wide boards, drag a card by its grip to another column; the row scrolls when you hold the card
-  near its edge. Phones and narrow panels use the move menu, which is also the keyboard and
+- The board fills the surface: the toolbar stays put and each column scrolls its own cards, so a
+  long column never pushes the others off screen.
+- On wide boards, drag a card by its grip to another column; a copy of the card follows the pointer
+  above the columns, and the row scrolls when you hold it near its edge. Phones and narrow panels use the move menu, which is also the keyboard and
   screen-reader way to move a card.
 - Moving a card into In progress by hand, by menu or by drag, gets an agent working once you confirm:
   - a finished, failed or closed agent can take a follow-up message;

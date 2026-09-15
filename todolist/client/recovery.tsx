@@ -22,7 +22,7 @@ export function RecoveryScreen(props: {
   return (
     <View style={styles.screen}>
       <Text style={styles.headerTitle}>Todo data needs recovery</Text>
-      <Notice styles={styles} kind="danger" title="The stored Todo document cannot be used">
+      <Notice styles={styles} theme={theme} kind="danger" title="The stored Todo document cannot be used">
         <Text style={styles.body}>{props.error}</Text>
         {props.revision ? <Text style={styles.mono}>Revision {props.revision}</Text> : null}
       </Notice>

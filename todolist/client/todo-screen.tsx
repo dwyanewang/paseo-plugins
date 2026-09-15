@@ -1,11 +1,10 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { usePaseo, useRpc, useSettings, type PluginSurfaceProps } from "@getpaseo/plugin/client";
-import { ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
+import { FlatList, Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Text, View } from "react-native";
 import {
-  BOARD_COLUMN_WIDTH,
   WORK_ITEM_STATUS_LABELS,
   buildBoard,
   columnAddAction,
@@ -16,7 +15,7 @@ import { documentStatus } from "../shared/contracts";
 import { todoPrefs } from "../shared/prefs";
 import type { Attempt, TodoDocument, WorkItem, WorkItemStatus } from "../shared/schema";
 import { aggregateWorkItem } from "../shared/state";
-import { TodoBoard } from "./board";
+import { TodoBoard, type RenderCard } from "./board";
 import { BoardCard } from "./board-card";
 import { BoardToolbar, ProjectPicker, type ProjectOption } from "./board-toolbar";
 import { CardDetail, type CardActions } from "./card-detail";
@@ -78,7 +77,7 @@ export function TodoScreen(props: {
   if (state.status === "error") {
     return (
       <View style={styles.screen}>
-        <Notice styles={styles} kind="danger" title="Todo is unavailable">
+        <Notice styles={styles} theme={theme} kind="danger" title="Todo is unavailable">
           {state.error}
         </Notice>
         <Button styles={styles} theme={theme} label="Reload" icon="RefreshCw" onPress={() => void state.reload()} />
@@ -119,7 +118,7 @@ function TodoReady(props: {
   const [query, setQuery] = useState("");
   const [pickedProjectId, setPickedProjectId] = useState<string | null>(null);
   const [pickingProject, setPickingProject] = useState(false);
-  const [width, setWidth] = useState(0);
+  const [size, setSize] = useState({ width: 0, height: 0 });
   const [detailId, setDetailId] = useState<string | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [editor, setEditor] = useState<{ open: boolean; view: WorkItemView | null; status: StartingStatus }>({ open: false, view: null, status: "todo" });
@@ -459,16 +458,16 @@ function TodoReady(props: {
     setExecute({ view: { item, claim: undefined, attempts: [], links: [], aggregate: aggregateWorkItem({ claim: undefined, attempts: [], links: [] }) }, retryAnyway: false });
   }
 
-  const renderCard = (view: WorkItemView, dragHandle?: ReactNode, showStatus = false) => (
+  const card = (view: WorkItemView, options: { dragHandle?: ReactNode; placeholder?: boolean; showStatus?: boolean }) => (
     <BoardCard
-      key={view.item.id}
       styles={styles}
       theme={theme}
       view={view}
       now={now}
-      showStatus={showStatus}
+      showStatus={options.showStatus ?? false}
       showProject={projectId === null}
-      dragHandle={dragHandle}
+      dragHandle={options.dragHandle}
+      placeholder={options.placeholder ?? false}
       onOpen={(entry) => setDetailId(entry.item.id)}
       // An archived card has nothing to move; its menu is the detail with Restore and Purge.
       onMenu={(entry) => (entry.item.archivedAt ? setDetailId(entry.item.id) : setMenuId(entry.item.id))}
@@ -476,56 +475,64 @@ function TodoReady(props: {
     />
   );
 
+  const renderCard: RenderCard = (view, dragHandle, placeholder) => card(view, { dragHandle, placeholder: placeholder ?? false });
+
   const degraded = health.data && health.data.status === "ok" ? health.data.degraded : null;
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: theme.colors.surface0 }} contentContainerStyle={styles.scrollContent}>
-      <View style={{ gap: styles.gap }} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
-        <BoardToolbar
-          styles={styles}
-          theme={theme}
-          title={props.title}
-          projectLabel={projectLabel}
-          projectFiltered={projectId !== null}
-          onPickProject={props.projectFilter ? null : () => setPickingProject(true)}
-          filter={filter}
-          onFilter={setFilter}
-          query={query}
-          onQuery={setQuery}
-          onReload={() => void reload()}
-          onCreate={() => openEditor("todo")}
-          canCreate={canCreate}
-        />
-        {degraded ? (
-          <Notice styles={styles} kind="warning" title="Daemon-side reconciliation is degraded">
-            {`${degraded.reason} since ${degraded.since}. Status may be stale until the plugin recovers or is reloaded.`}
-          </Notice>
-        ) : null}
-        {projectCache.status === "error" ? <Notice styles={styles} kind="warning">{projectCache.error ?? "Projects unavailable."}</Notice> : null}
-        {projectId && !isProjectAvailable(projectId) ? (
-          <Notice styles={styles} kind="warning" title="Project unavailable">
-            {`${TEXT.rebindNotice} Open a card and choose Rebind project.`}
-          </Notice>
-        ) : null}
+    <View style={styles.page}>
+      <BoardToolbar
+        styles={styles}
+        theme={theme}
+        compact={props.compact}
+        title={props.title}
+        projectLabel={projectLabel}
+        projectFiltered={projectId !== null}
+        onPickProject={props.projectFilter ? null : () => setPickingProject(true)}
+        filter={filter}
+        onFilter={setFilter}
+        query={query}
+        onQuery={setQuery}
+        onReload={() => void reload()}
+        onCreate={() => openEditor("todo")}
+        canCreate={canCreate}
+      />
+      {degraded ? (
+        <Notice styles={styles} theme={theme} kind="warning" title="Daemon-side reconciliation is degraded">
+          {`${degraded.reason} since ${degraded.since}. Status may be stale until the plugin recovers or is reloaded.`}
+        </Notice>
+      ) : null}
+      {projectCache.status === "error" ? <Notice styles={styles} theme={theme} kind="warning">{projectCache.error ?? "Projects unavailable."}</Notice> : null}
+      {projectId && !isProjectAvailable(projectId) ? (
+        <Notice styles={styles} theme={theme} kind="warning" title="Project unavailable">
+          {`${TEXT.rebindNotice} Open a card and choose Rebind project.`}
+        </Notice>
+      ) : null}
+      {/* The board takes whatever height is left and scrolls inside its columns, never the page. */}
+      <View style={styles.board} onLayout={(event) => setSize({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}>
         {projectCache.status === "ready" && projectOptions.length === 1 ? (
-          <Text style={styles.muted}>Open a project in Paseo to start the board.</Text>
+          <EmptyState styles={styles} theme={theme} icon="FolderOpen" title="No projects yet" message="Open a project in Paseo to start the board." />
         ) : filter === "archived" ? (
-          <View style={{ gap: styles.gap, maxWidth: BOARD_COLUMN_WIDTH * 2 }}>
-            {board.archived.map((view) => renderCard(view, undefined, true))}
-            {board.archived.length === 0 ? <Text style={styles.muted}>No archived items.</Text> : null}
-          </View>
+          <FlatList
+            data={board.archived}
+            keyExtractor={(view) => view.item.id}
+            style={{ flex: 1 }}
+            contentContainerStyle={{ gap: 8, maxWidth: 640, paddingBottom: 16 }}
+            renderItem={({ item: view }) => card(view, { showStatus: true })}
+            ListEmptyComponent={<EmptyState styles={styles} theme={theme} icon="Archive" title="Nothing archived" message="Archived cards are hidden from the board until restored." />}
+          />
         ) : (
           <TodoBoard
             styles={styles}
             theme={theme}
             columns={board.columns}
             // Before the first layout pass, guess from the host layout instead of flashing tabs.
-            width={width || (props.compact ? 0 : Number.MAX_SAFE_INTEGER)}
+            width={size.width || (props.compact ? 0 : Number.MAX_SAFE_INTEGER)}
+            height={size.height}
             renderCard={renderCard}
             onAdd={addToColumn}
             onDrop={(view, status) => requestMove(view, status)}
           />
         )}
-        <Text style={styles.mono}>{TEXT.trustNotice}</Text>
       </View>
       <WorkItemEditor
         styles={styles}
@@ -677,6 +684,17 @@ function TodoReady(props: {
           if (current) void current.run();
         }}
       />
-    </ScrollView>
+    </View>
+  );
+}
+
+function EmptyState(props: { styles: ReturnType<typeof useTodoStyles>; theme: PluginTheme; icon: string; title: string; message: string }) {
+  const { styles, theme } = props;
+  return (
+    <View style={{ alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 48, paddingHorizontal: 16 }}>
+      <Icon name={props.icon} size={28} color={theme.colors.foregroundMuted} />
+      <Text style={[styles.body, { fontWeight: "600" }]}>{props.title}</Text>
+      <Text style={[styles.muted, { textAlign: "center" }]}>{props.message}</Text>
+    </View>
   );
 }

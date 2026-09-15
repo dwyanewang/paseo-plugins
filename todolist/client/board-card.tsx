@@ -1,12 +1,19 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import { WORK_ITEM_PRIORITY_LABELS, WORK_ITEM_STATUS_LABELS, formatRelativeTime, latestLink } from "../shared/board";
-import { Badge } from "./components";
+import { Badge, IconButton } from "./components";
 import type { WorkItemView } from "./data";
 import type { TodoStyles } from "./styles";
-import { AGGREGATE_PRESENTATION, CARD_BADGE_STATES, DISPLAY_STATE_COLOR, DISPLAY_STATE_PRESENTATION, PRIORITY_PRESENTATION } from "./text";
+import {
+  AGGREGATE_PRESENTATION,
+  CARD_BADGE_STATES,
+  DISPLAY_STATE_COLOR,
+  DISPLAY_STATE_PRESENTATION,
+  PRIORITY_PRESENTATION,
+  STATUS_PRESENTATION,
+} from "./text";
 
 export function BoardCard(props: {
   styles: TodoStyles;
@@ -22,69 +29,68 @@ export function BoardCard(props: {
   showProject?: boolean;
   /** Grip for pointer drag on wide boards. */
   dragHandle?: ReactNode;
+  /** The card is being dragged: a ghost follows the pointer and this copy stays behind, faded. */
+  placeholder?: boolean;
 }) {
   const { styles, theme, view, now } = props;
   const { item, aggregate, links } = view;
+  const [hovered, setHovered] = useState(false);
+  const hover = { onHoverIn: () => setHovered(true), onHoverOut: () => setHovered(false) };
   const presentation = AGGREGATE_PRESENTATION[aggregate.state];
   const latest = latestLink(links);
   const agent = latest ? DISPLAY_STATE_PRESENTATION[latest.displayState] : null;
   const priority = PRIORITY_PRESENTATION[item.priority];
-  // Open, move and agent targets are siblings: a pressable nested in a pressable renders as a
-  // button inside a button on the web, which is invalid and misroutes clicks.
+  const status = STATUS_PRESENTATION[item.status];
+  const badge = CARD_BADGE_STATES.has(aggregate.state);
+  // Open, move, drag and agent targets are siblings: a pressable nested in a pressable renders as
+  // a button inside a button on the web, which is invalid and misroutes clicks.
   return (
-    <View style={styles.boardCard}>
-      <View style={[styles.row, { alignItems: "flex-start", gap: 4 }]}>
-        {props.dragHandle}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`#${item.number} ${item.title}, ${WORK_ITEM_STATUS_LABELS[item.status]}, ${WORK_ITEM_PRIORITY_LABELS[item.priority]}, ${presentation.label}`}
-          accessibilityHint="Opens details. Long press for move actions."
-          onPress={() => props.onOpen(view)}
-          onLongPress={() => props.onMenu(view)}
-          style={{ flex: 1, gap: 6 }}
-        >
-          <View style={styles.row}>
-            <Text style={[styles.mono, { flex: 1 }]} numberOfLines={1}>
-              #{item.number}
-              {props.showStatus ? ` · ${WORK_ITEM_STATUS_LABELS[item.status]}` : ""}
-            </Text>
-            {item.priority !== "none" ? (
-              <View style={styles.badge}>
-                <Icon name={priority.icon} size={12} color={theme.colors[priority.color]} />
-                <Text style={[styles.badgeText, { color: theme.colors[priority.color] }]}>{WORK_ITEM_PRIORITY_LABELS[item.priority]}</Text>
-              </View>
-            ) : null}
-            {CARD_BADGE_STATES.has(aggregate.state) ? (
-              <Badge styles={styles} theme={theme} label={presentation.label} icon={presentation.icon} tone={presentation.tone} />
-            ) : null}
-          </View>
-          <Text style={styles.title} numberOfLines={2}>
-            {item.title}
-          </Text>
-          {/* Its own line: squeezed next to the number and a priority badge, the name was unreadable. */}
+    <View style={[styles.boardCard, hovered ? styles.boardCardHovered : null, props.placeholder ? { opacity: 0.35 } : null]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`#${item.number} ${item.title}, ${WORK_ITEM_STATUS_LABELS[item.status]}, ${WORK_ITEM_PRIORITY_LABELS[item.priority]}, ${presentation.label}`}
+        accessibilityHint="Opens details. Long press for move actions."
+        onPress={() => props.onOpen(view)}
+        onLongPress={() => props.onMenu(view)}
+        {...hover}
+        style={{ gap: 5 }}
+      >
+        {/* Room on either side of the meta line for the grip and the menu, which float over it. */}
+        <View style={[styles.row, { gap: 6, minHeight: 22, paddingLeft: props.dragHandle ? 14 : 0, paddingRight: 24 }]}>
+          {props.showStatus ? <Icon name={status.icon} size={12} color={theme.colors[status.color]} /> : null}
+          <Text style={[styles.metaText, { fontVariant: ["tabular-nums"] }]}>#{item.number}</Text>
           {props.showProject ? (
-            <View style={[styles.row, { gap: 4 }]}>
-              <Icon name="Folder" size={12} color={theme.colors.foregroundMuted} />
-              <Text style={[styles.mono, { flexShrink: 1 }]} numberOfLines={1}>
+            <View style={[styles.row, { gap: 4, flexShrink: 1, minWidth: 0 }]}>
+              <Icon name="Folder" size={11} color={theme.colors.foregroundMuted} />
+              <Text style={[styles.metaText, { flexShrink: 1 }]} numberOfLines={1}>
                 {item.projectNameSnapshot}
               </Text>
             </View>
           ) : null}
-          {item.details ? (
-            <Text style={styles.muted} numberOfLines={2}>
-              {item.details}
-            </Text>
-          ) : null}
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Move #${item.number} ${item.title}`}
-          hitSlop={8}
-          onPress={() => props.onMenu(view)}
-          style={[styles.iconButton, { alignSelf: "flex-start" }]}
-        >
-          <Icon name="Ellipsis" size={16} color={theme.colors.foregroundMuted} />
-        </Pressable>
+        </View>
+        <Text style={styles.cardTitle} numberOfLines={3}>
+          {item.title}
+        </Text>
+        {item.details ? (
+          <Text style={styles.cardDetails} numberOfLines={2}>
+            {item.details}
+          </Text>
+        ) : null}
+        {item.priority !== "none" || badge ? (
+          <View style={[styles.metaRow, { paddingTop: 2 }]}>
+            {item.priority !== "none" ? (
+              <View style={styles.badge}>
+                <Icon name={priority.icon} size={11} color={theme.colors[priority.color]} />
+                <Text style={styles.badgeText}>{WORK_ITEM_PRIORITY_LABELS[item.priority]}</Text>
+              </View>
+            ) : null}
+            {badge ? <Badge styles={styles} theme={theme} label={presentation.label} icon={presentation.icon} tone={presentation.tone} /> : null}
+          </View>
+        ) : null}
+      </Pressable>
+      {props.dragHandle ? <View style={{ position: "absolute", left: 5, top: 10, opacity: hovered ? 1 : 0.4 }}>{props.dragHandle}</View> : null}
+      <View style={{ position: "absolute", right: 6, top: 7 }}>
+        <IconButton styles={styles} theme={theme} icon="Ellipsis" label={`Move #${item.number} ${item.title}`} dim={!hovered} onPress={() => props.onMenu(view)} />
       </View>
       {latest && agent ? (
         <Pressable
@@ -92,21 +98,20 @@ export function BoardCard(props: {
           accessibilityLabel={`Open agent, ${agent.label}`}
           disabled={!props.onOpenAgent}
           onPress={() => props.onOpenAgent?.(latest.agentId)}
-          style={styles.agentLine}
+          {...hover}
+          style={({ hovered: over }: { hovered?: boolean; pressed: boolean }) => [
+            styles.row,
+            { gap: 6, marginTop: 2, paddingTop: 7, borderTopWidth: 1, borderTopColor: theme.colors.border },
+            over && props.onOpenAgent ? { opacity: 0.8 } : null,
+          ]}
         >
-          <View style={[styles.row, { gap: 6 }]}>
-            <View style={[styles.dot, { backgroundColor: theme.colors[DISPLAY_STATE_COLOR[latest.displayState]] }]} />
-            <Text style={[styles.mono, { flex: 1 }]} numberOfLines={1}>
-              {agent.label}
-            </Text>
-            <Text style={[styles.mono, { flexShrink: 0 }]} numberOfLines={1}>
-              {formatRelativeTime(latest.stateChangedAt, now)}
-            </Text>
-          </View>
-          <Text style={styles.mono} numberOfLines={1}>
-            {latest.provider}
-            {latest.model ? ` · ${latest.model}` : ""}
-            {links.length > 1 ? ` · +${links.length - 1} more` : ""}
+          <View style={[styles.dot, { backgroundColor: theme.colors[DISPLAY_STATE_COLOR[latest.displayState]] }]} />
+          <Text style={[styles.metaText, { flex: 1, color: theme.colors.foreground }]} numberOfLines={1}>
+            {agent.label}
+            {links.length > 1 ? <Text style={styles.metaText}>{` · +${links.length - 1}`}</Text> : null}
+          </Text>
+          <Text style={[styles.metaText, { flexShrink: 0 }]} numberOfLines={1}>
+            {formatRelativeTime(latest.stateChangedAt, now)}
           </Text>
         </Pressable>
       ) : null}

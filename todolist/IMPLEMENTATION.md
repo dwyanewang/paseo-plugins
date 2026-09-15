@@ -257,6 +257,51 @@ Verified in the web app against a fake-provider test daemon with two projects:
 
 That pass moved the project name to its own card line and fixed the column header height.
 
+## Phase J — worktree runs, full-height board, visual pass (2026-09-15)
+
+Requested after using the Phase I board. Plan addendum: "第三轮调整" in
+`/home/yangfei/Private/Dw-Plans/paseo-todo-kanban-plan.md`.
+
+- [x] Direct run can cut a new worktree (git projects only):
+  - `RunTarget` is an existing workspace or `new_worktree` with a branch and an optional base;
+  - the branch defaults to `todo-<number>-<title slug>-<suffix>`;
+  - `paseo.workspaces.create` is reported as a workspace request-start first, so a failed create is
+    `outcome_unknown` and never retried;
+  - the agent then starts in the new workspace as before.
+- [x] The board fills the surface:
+  - the page no longer scrolls;
+  - each column is a `FlatList` that scrolls and virtualizes its own cards, which replaces "Show more";
+  - the side-scrolling layout sizes columns from the measured board height;
+  - tabs scroll sideways on phones.
+- [x] Drag draws a ghost card above the board, because columns now clip their content. The original
+      stays in place, faded, and hit-testing is unchanged.
+- [x] Visual pass across every screen:
+  - one spacing and type scale, and surfaces picked from the host theme (`isDarkTheme`);
+  - a one-row toolbar with the project dropdown, a segmented filter, search with an icon, and an
+    icon Reload;
+  - column headers with a count pill;
+  - cards with a meta line, the title at full width, a floating grip and menu that brighten on
+    hover, and an agent footer;
+  - the card detail with title, primary actions, a property panel, sections, folded older attempts,
+    and housekeeping (Rebind, Archive, Purge) at the bottom;
+  - dialog footers put Cancel first and the primary action last;
+  - list-style radio rows for projects, the picker and the move menu;
+  - notices with icons.
+- [x] The trust notice left the board; the settings screen already shows it.
+
+Tests: 123 unit tests (worktree run order and failure, branch naming, theme tone) and two E2E tests.
+The new E2E test cuts a real worktree and links the agent to it.
+
+Verified in the web app against a fake-provider test daemon with a git project and a folder project:
+- a 17-card To do column scrolling on its own;
+- hover state;
+- a drag from In progress to Done with the ghost and the drop highlight;
+- the detail with an agent attempt, and an archived detail;
+- the editor, the move menu, the Done picker and the Archived list;
+- the execute dialog with New worktree and its branch fields;
+- the side-scrolling layout at 1100 px and tabs at 400 px;
+- the dark theme.
+
 ## Acceptance bus
 
 - [x] 1. Core has no Todo naming or second storage system

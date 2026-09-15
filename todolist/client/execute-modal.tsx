@@ -4,13 +4,13 @@ import { Modal, useToast } from "@getpaseo/plugin/client/react-native";
 import { SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Text, View } from "react-native";
+import { Text } from "react-native";
 import { validateSeedPrompt } from "../shared/limits";
 import { todoPrefs, type LaunchMode } from "../shared/prefs";
 import { deriveSeedPrompt } from "../shared/prompt";
 import type { WorkItem } from "../shared/schema";
 import { useAgentConfigCatalog } from "./agent-config";
-import { Button, Field, Notice } from "./components";
+import { Button, DialogActions, Field, Notice } from "./components";
 import type { LaunchTarget } from "./launch";
 import { createId } from "../shared/ids";
 import { NEW_WORKSPACE, NEW_WORKTREE, resolveChoice, resolveWorkspaceTarget, worktreeNameFor } from "./launch-defaults";
@@ -206,13 +206,18 @@ export function ExecuteModal(props: {
   }
 
   return (
-    <Modal title={item ? `Execute: ${item.title}` : "Execute"} open={props.open} onOpenChange={props.onOpenChange}>
+    <Modal title={item ? `Execute #${item.number}` : "Execute"} open={props.open} onOpenChange={props.onOpenChange}>
       <Modal.Content>
+        {item ? (
+          <Text style={styles.detailTitle} numberOfLines={2}>
+            {item.title}
+          </Text>
+        ) : null}
         <Field styles={styles} theme={theme} label="Prompt for this attempt" value={seedPrompt} onChangeText={setSeedPrompt} multiline placeholder="What the agent should do" />
         {edited ? (
           <SettingsSwitch label="Also update the default prompt" value={updateDefault} onValueChange={setUpdateDefault} />
         ) : null}
-        {!props.canOpenComposer ? <Notice styles={styles}>{LAUNCH_UPGRADE_NOTICE}</Notice> : null}
+        {!props.canOpenComposer ? <Notice styles={styles} theme={theme}>{LAUNCH_UPGRADE_NOTICE}</Notice> : null}
         {props.canOpenComposer ? (
           <SettingsSelect
             label="Launch"
@@ -231,8 +236,8 @@ export function ExecuteModal(props: {
         ) : null}
         {newWorktree ? (
           <>
-            <Field styles={styles} theme={theme} label="Branch" value={branchName} onChangeText={setBranchName} placeholder={generatedBranch} editable={!busy} hint={TEXT.worktreeBranchHint} />
-            <Field styles={styles} theme={theme} label="Base branch" value={baseBranch} onChangeText={setBaseBranch} placeholder="Project default branch" editable={!busy} />
+            <Field styles={styles} theme={theme} label="Branch" value={branchName} onChangeText={setBranchName} placeholder={generatedBranch} editable={!busy} hint={TEXT.worktreeBranchHint} monospace />
+            <Field styles={styles} theme={theme} label="Base branch" value={baseBranch} onChangeText={setBaseBranch} placeholder="Project default branch" editable={!busy} monospace />
           </>
         ) : null}
         {effectiveMode === "run" ? (
@@ -258,20 +263,22 @@ export function ExecuteModal(props: {
             ) : null}
           </>
         ) : null}
-        {workspaces.isError ? <Notice styles={styles} kind="warning">Could not list workspaces for this project.</Notice> : null}
+        {workspaces.isError ? <Notice styles={styles} theme={theme} kind="warning">Could not list workspaces for this project.</Notice> : null}
         {noWorkspace ? (
-          <Notice styles={styles} kind="warning">
+          <Notice styles={styles} theme={theme} kind="warning">
             {props.canOpenComposer ? TEXT.noWorkspaceForRun : TEXT.noWorkspaceAtAll}
           </Notice>
         ) : null}
-        {noModel ? <Notice styles={styles} kind="warning">{catalog.error ?? TEXT.noProviderForRun}</Notice> : null}
+        {noModel ? <Notice styles={styles} theme={theme} kind="warning">{catalog.error ?? TEXT.noProviderForRun}</Notice> : null}
         {invalid ? (
-          <Notice styles={styles} kind="warning">
+          <Notice styles={styles} theme={theme} kind="warning">
             {invalid.reason === "empty" ? "Enter a prompt before launching." : "The prompt is too long."}
           </Notice>
         ) : null}
         <Text style={styles.mono}>{effectiveMode === "run" ? TEXT.runNotice : TEXT.seedNotice}</Text>
-        <View style={styles.rowWrap}>
+        <DialogActions styles={styles}>
+          <Button styles={styles} theme={theme} label="Cancel" disabled={busy} onPress={() => props.onOpenChange(false)} />
+          {props.onMoveOnly ? <Button styles={styles} theme={theme} label="Move only" disabled={busy} onPress={props.onMoveOnly} /> : null}
           <Button
             styles={styles}
             theme={theme}
@@ -281,9 +288,7 @@ export function ExecuteModal(props: {
             disabled={blocked}
             onPress={() => void submit()}
           />
-          {props.onMoveOnly ? <Button styles={styles} theme={theme} label="Move only" disabled={busy} onPress={props.onMoveOnly} /> : null}
-          <Button styles={styles} theme={theme} label="Cancel" disabled={busy} onPress={() => props.onOpenChange(false)} />
-        </View>
+        </DialogActions>
       </Modal.Content>
     </Modal>
   );

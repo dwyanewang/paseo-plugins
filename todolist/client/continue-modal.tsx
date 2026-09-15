@@ -2,11 +2,11 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Modal } from "@getpaseo/plugin/client/react-native";
 import { SettingsSelect } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { Text } from "react-native";
 import { resolveInProgressIntent, type InProgressIntent } from "../shared/board";
 import { createId } from "../shared/ids";
 import { validateSeedPrompt } from "../shared/limits";
-import { Button, Field, Notice } from "./components";
+import { Button, DialogActions, Field, Notice } from "./components";
 import type { WorkItemView } from "./data";
 import type { FollowUpResult } from "./follow-up";
 import type { TodoStyles } from "./styles";
@@ -77,15 +77,15 @@ function ContinueBody(props: {
   if (request.intent.kind === "permission") {
     return (
       <>
-        <Text style={styles.title}>{view.item.title}</Text>
-        <Notice styles={styles} kind="warning">{TEXT.permissionNotice}</Notice>
-        <View style={styles.rowWrap}>
+        <Text style={styles.detailTitle}>{view.item.title}</Text>
+        <Notice styles={styles} theme={theme} kind="warning">{TEXT.permissionNotice}</Notice>
+        <DialogActions styles={styles}>
+          <Button styles={styles} theme={theme} label="Cancel" onPress={props.onClose} />
+          {request.move ? <Button styles={styles} theme={theme} label="Move only" onPress={() => props.onMoveOnly(view)} /> : null}
           {openAgent ? (
             <Button styles={styles} theme={theme} label={request.move ? "Move and open agent" : "Open agent"} icon="Bot" variant="primary" onPress={() => openAgent(view, agentId)} />
           ) : null}
-          {request.move ? <Button styles={styles} theme={theme} label="Move only" onPress={() => props.onMoveOnly(view)} /> : null}
-          <Button styles={styles} theme={theme} label="Cancel" onPress={props.onClose} />
-        </View>
+        </DialogActions>
       </>
     );
   }
@@ -113,7 +113,7 @@ function ContinueBody(props: {
   const presentation = link ? DISPLAY_STATE_PRESENTATION[link.displayState] : null;
   return (
     <>
-      <Text style={styles.title}>{view.item.title}</Text>
+      <Text style={styles.detailTitle}>{view.item.title}</Text>
       {candidates.length > 1 ? (
         <SettingsSelect
           label="Agent"
@@ -132,9 +132,9 @@ function ContinueBody(props: {
           {link.model ? ` · ${link.model}` : ""} · {presentation.label}
         </Text>
       ) : null}
-      {link?.displayState === "closed" ? <Notice styles={styles}>{TEXT.followUpReopenNotice}</Notice> : null}
+      {link?.displayState === "closed" ? <Notice styles={styles} theme={theme}>{TEXT.followUpReopenNotice}</Notice> : null}
       {!stillIdle && !failed ? (
-        <Notice styles={styles} kind="warning">{nowRunning ? TEXT.followUpBusyNotice : TEXT.followUpUnreachableNotice}</Notice>
+        <Notice styles={styles} theme={theme} kind="warning">{nowRunning ? TEXT.followUpBusyNotice : TEXT.followUpUnreachableNotice}</Notice>
       ) : null}
       <Field
         styles={styles}
@@ -148,7 +148,7 @@ function ContinueBody(props: {
         {...(locked ? { hint: "Locked after sending, so a retry sends exactly the same message." } : {})}
       />
       {failed?.status === "unknown" ? (
-        <Notice styles={styles} kind="warning" title="Delivery not confirmed">
+        <Notice styles={styles} theme={theme} kind="warning" title="Delivery not confirmed">
           {failed.replayRefused
             ? TEXT.followUpReplayRefusedNotice
             : stillIdle
@@ -160,14 +160,12 @@ function ContinueBody(props: {
       ) : null}
       {failed ? <Text style={styles.mono}>Paseo said: {failed.message}</Text> : null}
       {failed?.status === "conflict" ? (
-        <Notice styles={styles} kind="danger" title="Message ID already used">{failed.message}</Notice>
+        <Notice styles={styles} theme={theme} kind="danger" title="Message ID already used">{failed.message}</Notice>
       ) : null}
       <Text style={styles.mono}>{TEXT.followUpNotice}</Text>
       {failed ? (
-        <View style={styles.rowWrap}>
-          {failed.status === "unknown" && !failed.replayRefused && stillIdle ? (
-            <Button styles={styles} theme={theme} label="Retry the same message" icon="RotateCcw" variant="primary" onPress={() => void send()} />
-          ) : null}
+        <DialogActions styles={styles}>
+          <Button styles={styles} theme={theme} label="Close" onPress={props.onClose} />
           <Button
             styles={styles}
             theme={theme}
@@ -180,10 +178,15 @@ function ContinueBody(props: {
             }}
           />
           {openAgent ? <Button styles={styles} theme={theme} label="Open agent" icon="Bot" onPress={() => openAgent(view, agentId)} /> : null}
-          <Button styles={styles} theme={theme} label="Close" onPress={props.onClose} />
-        </View>
+          {failed.status === "unknown" && !failed.replayRefused && stillIdle ? (
+            <Button styles={styles} theme={theme} label="Retry the same message" icon="RotateCcw" variant="primary" onPress={() => void send()} />
+          ) : null}
+        </DialogActions>
       ) : (
-        <View style={styles.rowWrap}>
+        <DialogActions styles={styles}>
+          <Button styles={styles} theme={theme} label="Cancel" disabled={sending} onPress={props.onClose} />
+          <Button styles={styles} theme={theme} label="Start a new run instead" icon="Play" disabled={sending} onPress={() => props.onExecuteInstead(view)} />
+          {request.move ? <Button styles={styles} theme={theme} label="Move only" disabled={sending} onPress={() => props.onMoveOnly(view)} /> : null}
           <Button
             styles={styles}
             theme={theme}
@@ -193,10 +196,7 @@ function ContinueBody(props: {
             disabled={sending || Boolean(invalid) || !stillIdle}
             onPress={() => void send()}
           />
-          {request.move ? <Button styles={styles} theme={theme} label="Move only" disabled={sending} onPress={() => props.onMoveOnly(view)} /> : null}
-          <Button styles={styles} theme={theme} label="Start a new run instead" icon="Play" disabled={sending} onPress={() => props.onExecuteInstead(view)} />
-          <Button styles={styles} theme={theme} label="Cancel" disabled={sending} onPress={props.onClose} />
-        </View>
+        </DialogActions>
       )}
     </>
   );

@@ -4,10 +4,10 @@ import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { WORK_ITEM_PRIORITY_LABELS, WORK_ITEM_STATUS_LABELS, type BoardColumn } from "../shared/board";
 import type { WorkItemStatus } from "../shared/schema";
-import { Button } from "./components";
+import { Button, DialogActions } from "./components";
 import type { WorkItemView } from "./data";
 import type { TodoStyles } from "./styles";
-import { PRIORITY_PRESENTATION } from "./text";
+import { PRIORITY_PRESENTATION, STATUS_PRESENTATION } from "./text";
 
 export interface PickRequest {
   target: WorkItemStatus;
@@ -59,18 +59,27 @@ function PickerBody(props: {
   const confirmLabel = request.target !== "done" ? "Move to In progress" : chosen.length > 1 ? `Mark ${chosen.length} done` : "Mark done";
   return (
     <>
+      <Text style={styles.muted}>
+        {request.multiple ? "Choose the reviewed cards to close." : "Choose the card to start. Moving it opens the run dialog."}
+      </Text>
       {candidates.length === 0 ? (
-        <Text style={styles.muted}>
-          {`No cards in ${request.groups.map((group) => WORK_ITEM_STATUS_LABELS[group.status]).join(" or ")} match the current filter.`}
-        </Text>
+        <View style={{ alignItems: "center", gap: 8, paddingVertical: 24 }}>
+          <Icon name="Inbox" size={24} color={theme.colors.foregroundMuted} />
+          <Text style={[styles.muted, { textAlign: "center" }]}>
+            {`No cards in ${request.groups.map((group) => WORK_ITEM_STATUS_LABELS[group.status]).join(" or ")} match the current filter.`}
+          </Text>
+        </View>
       ) : null}
       {request.groups
         .filter((group) => group.views.length > 0)
         .map((group) => (
           <View key={group.status} style={{ gap: 6 }}>
-            <Text style={styles.sectionTitle}>
-              {WORK_ITEM_STATUS_LABELS[group.status]} ({group.views.length})
-            </Text>
+            <View style={[styles.row, { gap: 6 }]}>
+              <Icon name={STATUS_PRESENTATION[group.status].icon} size={12} color={theme.colors[STATUS_PRESENTATION[group.status].color]} />
+              <Text style={styles.sectionTitle}>
+                {WORK_ITEM_STATUS_LABELS[group.status]} · {group.views.length}
+              </Text>
+            </View>
             {group.views.map((view) => {
               const checked = selected.includes(view.item.id);
               const priority = PRIORITY_PRESENTATION[view.item.priority];
@@ -82,29 +91,39 @@ function PickerBody(props: {
                   aria-checked={checked}
                   accessibilityLabel={`#${view.item.number} ${view.item.title}, ${WORK_ITEM_PRIORITY_LABELS[view.item.priority]}`}
                   onPress={() => toggle(view.item.id)}
-                  style={[styles.boardCard, { flexDirection: "row", alignItems: "center", gap: 10 }, checked ? styles.columnDropTarget : null]}
+                  style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [
+                    styles.listRow,
+                    hovered && !checked ? { borderColor: theme.colors.foregroundMuted } : null,
+                    checked ? styles.listRowSelected : null,
+                  ]}
                 >
                   <Icon
                     name={request.multiple ? (checked ? "SquareCheck" : "Square") : checked ? "CircleDot" : "Circle"}
-                    size={18}
+                    size={16}
                     color={checked ? theme.colors.accent : theme.colors.foregroundMuted}
                   />
-                  <View style={{ flex: 1, gap: 2 }}>
-                    <Text style={styles.title} numberOfLines={1}>
+                  <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
+                    <Text style={[styles.body, { fontWeight: "500" }]} numberOfLines={1}>
                       {view.item.title}
                     </Text>
-                    <Text style={styles.mono} numberOfLines={1}>
+                    <Text style={styles.metaText} numberOfLines={1}>
                       #{view.item.number}
                       {props.showProject ? ` · ${view.item.projectNameSnapshot}` : ""}
                     </Text>
                   </View>
-                  {view.item.priority !== "none" ? <Icon name={priority.icon} size={14} color={theme.colors[priority.color]} /> : null}
+                  {view.item.priority !== "none" ? (
+                    <View style={styles.badge}>
+                      <Icon name={priority.icon} size={11} color={theme.colors[priority.color]} />
+                      <Text style={styles.badgeText}>{WORK_ITEM_PRIORITY_LABELS[view.item.priority]}</Text>
+                    </View>
+                  ) : null}
                 </Pressable>
               );
             })}
           </View>
         ))}
-      <View style={styles.rowWrap}>
+      <DialogActions styles={styles}>
+        <Button styles={styles} theme={theme} label="Cancel" onPress={props.onClose} />
         <Button
           styles={styles}
           theme={theme}
@@ -114,8 +133,7 @@ function PickerBody(props: {
           disabled={chosen.length === 0}
           onPress={() => props.onConfirm(request.target, chosen)}
         />
-        <Button styles={styles} theme={theme} label="Cancel" onPress={props.onClose} />
-      </View>
+      </DialogActions>
     </>
   );
 }
