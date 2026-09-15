@@ -46,9 +46,9 @@ branch, which adds the two generic core extensions this plugin needs:
   rebinds them explicitly.
 - After any request-start, every negative result is `outcome_unknown`. Todo never retries or resends;
   "Retry anyway" always creates a new, distinguishable attempt.
-- Execute has two paths. **Start the agent now** creates the agent in an existing workspace, or in a
-  new worktree cut for this run in git projects, and sends the prompt as its first message; **Open
-  the composer** seeds the native draft and you press send. Both write the same claim, attempt and
+- Execute has two paths. **Run now** creates the agent in an existing workspace, or in a new
+  worktree cut for this run in git projects, and sends the prompt as its first message; **In the
+  composer** seeds the native draft and you press send. Both write the same claim, attempt and
   correlation labels, so they read and reconcile identically.
 - A new worktree gets a branch named after the card (`todo-<number>-<title>-<suffix>`, editable) from
   the project's default branch unless another base is given. Creating the worktree is a
@@ -75,7 +75,11 @@ branch, which adds the two generic core extensions this plugin needs:
   - In review and Cancelled have no "+".
 - The board fills the surface: the toolbar stays put and each column scrolls its own cards, so a
   long column never pushes the others off screen. On phones the toolbar is one row, search opens
-  from its button, and one column at a time shows behind status tabs.
+  from its button, and one column at a time shows behind status tabs. The toolbar's "+" is the only
+  create button; In progress and Done show their pick action above their cards, and iOS and Android
+  pull to refresh.
+- Direct runs pick a provider, then one of its models; changing the provider selects its default
+  model.
 - On wide boards, drag a card by its grip to another column; a copy of the card follows the pointer
   above the columns, and the row scrolls when you hold it near its edge. Phones and narrow panels use the move menu, which is also the keyboard and
   screen-reader way to move a card.

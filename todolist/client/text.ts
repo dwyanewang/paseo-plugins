@@ -84,7 +84,6 @@ export const TEXT = {
     "The prompt starts from the saved default, or from the Todo title and details when no default is set. Whatever you finally submit in the composer is not copied back into Todo.",
   runNotice:
     "The prompt is sent as the agent's first message. Todo records the attempt and links the agent; it never resends on its own.",
-  runModeHint: "Creates the agent in the chosen workspace and sends the prompt straight away.",
   worktreeBranchHint:
     "A new branch and worktree are created for this run from the base branch. Leave the name empty to use the one shown.",
   composerModeHint:

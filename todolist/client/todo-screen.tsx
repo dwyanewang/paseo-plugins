@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { Text, View } from "react-native";
 import {
   WORK_ITEM_STATUS_LABELS,
+  boardLayout,
   buildBoard,
   columnAddAction,
   resolveInProgressIntent,
@@ -15,7 +16,7 @@ import { documentStatus } from "../shared/contracts";
 import { todoPrefs } from "../shared/prefs";
 import type { Attempt, TodoDocument, WorkItem, WorkItemStatus } from "../shared/schema";
 import { aggregateWorkItem } from "../shared/state";
-import { TodoBoard, type RenderCard } from "./board";
+import { TodoBoard, resolveActiveTab, type RenderCard } from "./board";
 import { BoardCard } from "./board-card";
 import { BoardToolbar, ProjectPicker, type ProjectOption } from "./board-toolbar";
 import { CardDetail, type CardActions } from "./card-detail";
@@ -121,6 +122,8 @@ function TodoReady(props: {
   const [pickedProjectId, setPickedProjectId] = useState<string | null>(null);
   const [pickingProject, setPickingProject] = useState(false);
   const [size, setSize] = useState({ width: 0, height: 0 });
+  const [tab, setTab] = useState<WorkItemStatus | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [editor, setEditor] = useState<{ open: boolean; view: WorkItemView | null; status: StartingStatus }>({ open: false, view: null, status: "todo" });
@@ -479,6 +482,21 @@ function TodoReady(props: {
 
   const renderCard: RenderCard = (view, dragHandle, placeholder) => card(view, { dragHandle, placeholder: placeholder ?? false });
 
+  // Before the first layout pass, guess from the host layout instead of flashing tabs.
+  const boardWidth = size.width || (props.compact ? 0 : Number.MAX_SAFE_INTEGER);
+  const phoneBoard = filter !== "archived" && boardLayout(boardWidth, board.columns.length, styles.gap) === "tabs";
+  // Phones and tablets pull to refresh; elsewhere the toolbar keeps its Reload button.
+  const refresh =
+    props.platform === "ios" || props.platform === "android"
+      ? {
+          refreshing,
+          onRefresh: () => {
+            setRefreshing(true);
+            void reload().finally(() => setRefreshing(false));
+          },
+        }
+      : undefined;
+
   const degraded = health.data && health.data.status === "ok" ? health.data.degraded : null;
   return (
     <View style={styles.page}>
@@ -493,8 +511,9 @@ function TodoReady(props: {
         onFilter={setFilter}
         query={query}
         onQuery={setQuery}
-        onReload={() => void reload()}
-        onCreate={() => openEditor("todo")}
+        onReload={refresh && props.compact ? null : () => void reload()}
+        // New creates in the column a phone board shows, when that column takes new cards.
+        onCreate={() => openEditor(phoneBoard && resolveActiveTab(board.columns, tab)?.status === "backlog" ? "backlog" : "todo")}
         canCreate={canCreate}
       />
       {degraded ? (
@@ -519,6 +538,7 @@ function TodoReady(props: {
             style={{ flex: 1 }}
             contentContainerStyle={{ gap: 8, maxWidth: 640, paddingBottom: 16 }}
             renderItem={({ item: view }) => card(view, { showStatus: true })}
+            {...(refresh ?? {})}
             ListEmptyComponent={<EmptyState styles={styles} theme={theme} icon="Archive" title="Nothing archived" message="Archived cards are hidden from the board until restored." />}
           />
         ) : (
@@ -526,12 +546,14 @@ function TodoReady(props: {
             styles={styles}
             theme={theme}
             columns={board.columns}
-            // Before the first layout pass, guess from the host layout instead of flashing tabs.
-            width={size.width || (props.compact ? 0 : Number.MAX_SAFE_INTEGER)}
+            width={boardWidth}
             height={size.height}
             renderCard={renderCard}
             onAdd={addToColumn}
             onDrop={(view, status) => requestMove(view, status)}
+            tab={tab}
+            onTab={setTab}
+            {...(refresh ? { refresh } : {})}
           />
         )}
       </View>

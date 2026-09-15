@@ -295,6 +295,18 @@ Requested after using the Phase I board. Plan addendum: "第三轮调整" in
     opens the first column that has cards until a tab is picked;
   - priority moved into the card's meta line on every layout;
   - the card detail on phones shows Status and Priority as rows that open their choices in place.
+- [x] Second phone pass:
+  - one "+": the tab row no longer repeats New;
+  - New creates in Backlog while a phone board shows Backlog, otherwise in To do;
+  - In progress and Done spell out their pick action above their cards;
+  - iOS and Android pull to refresh, so phones drop the Reload button;
+  - the filter chip has no icon, which leaves room for the project name.
+- [x] Execute dialog:
+  - direct runs pick a provider first, then one of its models (`buildCatalogChoices`);
+  - switching provider selects that provider's default model;
+  - the settings sit in grouped cards: Run (Launch, Workspace, the worktree fields) and Agent
+    (Provider, Model, Mode, Thinking);
+  - the launch choices are shorter: "Run now" and "In the composer".
 
 Tests: 123 unit tests (worktree run order and failure, branch naming, theme tone) and two E2E tests.
 The new E2E test cuts a real worktree and links the agent to it.
@@ -309,7 +321,10 @@ Verified in the web app against a fake-provider test daemon with a git project a
 - the side-scrolling layout at 1100 px and tabs at 400 px;
 - the dark theme;
 - after the phone pass, at 400 px: search, the filter picker, the default tab, and the detail's
-  property rows; the wide board and detail looked the same as before.
+  property rows; the wide board and detail looked the same as before;
+- after the second phone pass, with the fake daemon's Claude, Codex and OpenCode catalogs: the single
+  "+", the In progress pick button, and the execute dialog at 400 px and 1440 px; switching Claude
+  to Codex selected gpt-5.4-mini and its default mode.
 
 ## Acceptance bus
 

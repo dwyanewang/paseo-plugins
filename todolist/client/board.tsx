@@ -1,11 +1,11 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { FlatList, Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { Animated, Text, View, type ScrollView as NativeScrollView, type ViewStyle } from "react-native";
 import { BOARD_COLUMN_WIDTH, WORK_ITEM_STATUS_LABELS, boardLayout, columnAddAction, type BoardColumn } from "../shared/board";
 import type { WorkItemStatus } from "../shared/schema";
 import { DragHandle, useBoardDrag, type BoardDrag } from "./board-dnd";
-import { Chip, IconButton } from "./components";
+import { Button, Chip, IconButton } from "./components";
 import type { WorkItemView } from "./data";
 import type { TodoStyles } from "./styles";
 import { STATUS_PRESENTATION } from "./text";
@@ -14,6 +14,20 @@ import { STATUS_PRESENTATION } from "./text";
 const SCROLLBAR_ROOM = 14;
 
 export type RenderCard = (view: WorkItemView, dragHandle?: ReactNode, placeholder?: boolean) => ReactNode;
+
+/**
+ * The column a phone board shows. Until a tab is picked it is the first column that has cards, so a
+ * filter never lands on an empty tab while others hold work.
+ */
+export function resolveActiveTab<View>(columns: readonly BoardColumn<View>[], tab: WorkItemStatus | null): BoardColumn<View> | undefined {
+  return columns.find((entry) => entry.status === tab) ?? columns.find((entry) => entry.views.length > 0) ?? columns[0];
+}
+
+/** On phones a pick column's "+" is spelled out above its cards, since New already owns the "+". */
+const PICK_LABELS: Partial<Record<WorkItemStatus, { label: string; icon: string }>> = {
+  in_progress: { label: "Start a card from To do or Backlog", icon: "Play" },
+  done: { label: "Mark reviewed cards done", icon: "CircleCheck" },
+};
 
 function CardGap() {
   return <View style={{ height: 8 }} />;
@@ -28,6 +42,9 @@ function ColumnCards(props: {
   drag: BoardDrag | null;
   dropTarget: boolean;
   contentStyle: ViewStyle;
+  header?: ReactNode;
+  /** Pull to refresh, where the platform has it. */
+  refresh?: { refreshing: boolean; onRefresh: () => void };
 }) {
   const { styles, theme, drag } = props;
   return (
@@ -40,6 +57,8 @@ function ColumnCards(props: {
       initialNumToRender={12}
       windowSize={9}
       extraData={drag?.draggingId}
+      ListHeaderComponent={props.header ? <View style={{ paddingBottom: 10 }}>{props.header}</View> : null}
+      {...(props.refresh ? { refreshing: props.refresh.refreshing, onRefresh: props.refresh.onRefresh } : {})}
       renderItem={({ item: view }) => (
         <View ref={drag?.cardRef(view.item.id)}>
           {props.renderCard(
@@ -117,9 +136,12 @@ export function TodoBoard(props: {
   renderCard: RenderCard;
   onAdd: (status: WorkItemStatus) => void;
   onDrop: (view: WorkItemView, status: WorkItemStatus) => void;
+  /** The phone board's tab, kept by the screen so New can create in the column on show. */
+  tab: WorkItemStatus | null;
+  onTab: (status: WorkItemStatus) => void;
+  refresh?: { refreshing: boolean; onRefresh: () => void };
 }) {
   const { styles, theme, columns } = props;
-  const [tab, setTab] = useState<WorkItemStatus | null>(null);
   const layout = boardLayout(props.width, columns.length, styles.gap);
   const scrollRef = useRef<NativeScrollView | null>(null);
   const drag = useBoardDrag({ columns, scrollRef: layout === "scroll" ? scrollRef : null, onDrop: props.onDrop });
@@ -137,46 +159,41 @@ export function TodoBoard(props: {
   );
   if (layout === "tabs") {
     // Phones and narrow panels: the tabs already name the column and its count, so its cards sit
-    // straight on the page, and the column's "+" stays beside the tabs.
-    // Until a tab is picked, open the first column that has cards, so a filter never lands on an
-    // empty tab while others hold work.
-    const active = columns.find((entry) => entry.status === tab) ?? columns.find((entry) => entry.views.length > 0) ?? columns[0];
-    const add = active ? columnAddAction(active.status) : null;
-    const activeLabel = active ? WORK_ITEM_STATUS_LABELS[active.status] : "";
+    // straight on the page.
+    const active = resolveActiveTab(columns, props.tab);
+    const pick = active ? PICK_LABELS[active.status] : undefined;
     return (
       <View style={[styles.board, { gap: 10 }]}>
-        <View style={[styles.row, { gap: 6 }]}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ gap: 6 }}>
-            <View accessibilityRole="tablist" style={[styles.row, { gap: 6 }]}>
-              {columns.map((entry) => (
-                <Chip
-                  key={entry.status}
-                  styles={styles}
-                  theme={theme}
-                  label={WORK_ITEM_STATUS_LABELS[entry.status]}
-                  trailing={String(entry.views.length)}
-                  accessibilityLabel={`${WORK_ITEM_STATUS_LABELS[entry.status]}, ${entry.views.length}`}
-                  icon={STATUS_PRESENTATION[entry.status].icon}
-                  iconColor={theme.colors[STATUS_PRESENTATION[entry.status].color]}
-                  selected={entry.status === active?.status}
-                  onPress={() => setTab(entry.status)}
-                />
-              ))}
-            </View>
-          </ScrollView>
-          {active && add ? (
-            <IconButton
-              styles={styles}
-              theme={theme}
-              icon="Plus"
-              bordered
-              label={add.kind === "create" ? `New item in ${activeLabel}` : `Add existing cards to ${activeLabel}`}
-              onPress={() => props.onAdd(active.status)}
-            />
-          ) : null}
-        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 6 }}>
+          <View accessibilityRole="tablist" style={[styles.row, { gap: 6 }]}>
+            {columns.map((entry) => (
+              <Chip
+                key={entry.status}
+                styles={styles}
+                theme={theme}
+                label={WORK_ITEM_STATUS_LABELS[entry.status]}
+                trailing={String(entry.views.length)}
+                accessibilityLabel={`${WORK_ITEM_STATUS_LABELS[entry.status]}, ${entry.views.length}`}
+                icon={STATUS_PRESENTATION[entry.status].icon}
+                iconColor={theme.colors[STATUS_PRESENTATION[entry.status].color]}
+                selected={entry.status === active?.status}
+                onPress={() => props.onTab(entry.status)}
+              />
+            ))}
+          </View>
+        </ScrollView>
         {active ? (
-          <ColumnCards styles={styles} theme={theme} column={active} renderCard={props.renderCard} drag={null} dropTarget={false} contentStyle={{ paddingBottom: 16 }} />
+          <ColumnCards
+            styles={styles}
+            theme={theme}
+            column={active}
+            renderCard={props.renderCard}
+            drag={null}
+            dropTarget={false}
+            contentStyle={{ paddingBottom: 16 }}
+            {...(pick ? { header: <Button styles={styles} theme={theme} label={pick.label} icon={pick.icon} onPress={() => props.onAdd(active.status)} /> } : {})}
+            {...(props.refresh ? { refresh: props.refresh } : {})}
+          />
         ) : null}
       </View>
     );

@@ -17,7 +17,7 @@ export interface ProjectOption {
 function DropdownChip(props: {
   styles: TodoStyles;
   theme: PluginTheme;
-  icon: string;
+  icon?: string;
   label: string;
   highlighted: boolean;
   accessibilityLabel: string;
@@ -26,7 +26,7 @@ function DropdownChip(props: {
   const { styles, theme } = props;
   const content = (
     <>
-      <Icon name={props.icon} size={13} color={props.highlighted ? theme.colors.foreground : theme.colors.foregroundMuted} />
+      {props.icon ? <Icon name={props.icon} size={13} color={props.highlighted ? theme.colors.foreground : theme.colors.foregroundMuted} /> : null}
       <Text style={[props.highlighted ? styles.chipSelectedText : styles.chipText, { flexShrink: 1 }]} numberOfLines={1}>
         {props.label}
       </Text>
@@ -70,7 +70,8 @@ export function BoardToolbar(props: {
   onFilter: (filter: BoardFilter) => void;
   query: string;
   onQuery: (query: string) => void;
-  onReload: () => void;
+  /** Null where the list pulls to refresh instead. */
+  onReload: (() => void) | null;
   onCreate: () => void;
   canCreate: boolean;
 }) {
@@ -103,9 +104,10 @@ export function BoardToolbar(props: {
       {props.query ? <IconButton styles={styles} theme={theme} icon="X" label="Clear search" onPress={() => props.onQuery("")} /> : null}
     </View>
   );
-  const reload = (
-    <IconButton styles={styles} theme={theme} icon="RefreshCw" label="Reload" bordered accessibilityHint="Re-reads Todo data from the daemon" onPress={props.onReload} />
-  );
+  const onReload = props.onReload;
+  const reload = onReload ? (
+    <IconButton styles={styles} theme={theme} icon="RefreshCw" label="Reload" bordered accessibilityHint="Re-reads Todo data from the daemon" onPress={onReload} />
+  ) : null;
 
   if (props.compact) {
     const filterLabel = BOARD_FILTERS.find((entry) => entry.value === props.filter)?.label ?? "Active";
@@ -118,7 +120,6 @@ export function BoardToolbar(props: {
           <DropdownChip
             styles={styles}
             theme={theme}
-            icon="ListFilter"
             label={filterLabel}
             highlighted={props.filter !== "active"}
             accessibilityLabel={`Board filter: ${filterLabel}. Change`}

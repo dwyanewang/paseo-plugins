@@ -1,10 +1,10 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { usePaseo, useSettings } from "@getpaseo/plugin/client";
-import { Modal, useToast } from "@getpaseo/plugin/client/react-native";
-import { SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
+import { Icon, Modal, useToast } from "@getpaseo/plugin/client/react-native";
+import { SettingsCard, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
-import { Text } from "react-native";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Text, View } from "react-native";
 import { validateSeedPrompt } from "../shared/limits";
 import { todoPrefs, type LaunchMode } from "../shared/prefs";
 import { deriveSeedPrompt } from "../shared/prompt";
@@ -36,6 +36,15 @@ export type ExecuteSubmit =
       updateDefaultPrompt: boolean;
       target: LaunchTarget;
     };
+
+function Group(props: { styles: TodoStyles; title: string; children: ReactNode }) {
+  return (
+    <View style={{ gap: 8 }}>
+      <Text style={props.styles.sectionTitle}>{props.title}</Text>
+      {props.children}
+    </View>
+  );
+}
 
 export function ExecuteModal(props: {
   styles: TodoStyles;
@@ -130,6 +139,9 @@ export function ExecuteModal(props: {
   const knownMode = (value: string | null | undefined) => Boolean(value) && modes.some((option) => option.value === value);
   const effectiveModeId = knownMode(modeId) ? modeId! : knownMode(stored?.modeId) ? stored!.modeId : catalog.defaultModeFor(effectiveModel);
   const selectedModel = catalog.models.find((option) => option.value === effectiveModel);
+  // Provider first, then one of its models: the full catalog is too long for a single list.
+  const effectiveProvider = selectedModel?.provider ?? "";
+  const providerModels = catalog.models.filter((option) => option.provider === effectiveProvider);
   const thinkingOptions = selectedModel?.thinkingOptions ?? [];
   const effectiveThinkingOptionId = resolveChoice(thinkingOptions, thinkingOptionId, stored?.thinkingOptionId, selectedModel?.defaultThinkingOptionId);
 
@@ -209,44 +221,76 @@ export function ExecuteModal(props: {
     <Modal title={item ? `Execute #${item.number}` : "Execute"} open={props.open} onOpenChange={props.onOpenChange}>
       <Modal.Content>
         {item ? (
-          <Text style={styles.detailTitle} numberOfLines={2}>
-            {item.title}
-          </Text>
+          <View style={{ gap: 4 }}>
+            <Text style={styles.detailTitle} numberOfLines={2}>
+              {item.title}
+            </Text>
+            <View style={[styles.row, { gap: 6 }]}>
+              <Icon name="Folder" size={12} color={theme.colors.foregroundMuted} />
+              <Text style={[styles.mono, { flexShrink: 1 }]} numberOfLines={1}>
+                {item.projectNameSnapshot}
+              </Text>
+            </View>
+          </View>
         ) : null}
-        <Field styles={styles} theme={theme} label="Prompt for this attempt" value={seedPrompt} onChangeText={setSeedPrompt} multiline placeholder="What the agent should do" />
-        {edited ? (
-          <SettingsSwitch label="Also update the default prompt" value={updateDefault} onValueChange={setUpdateDefault} />
-        ) : null}
+
+        <View style={{ gap: 8 }}>
+          <Field styles={styles} theme={theme} label="Prompt for this attempt" value={seedPrompt} onChangeText={setSeedPrompt} multiline placeholder="What the agent should do" />
+          {edited ? (
+            <SettingsCard>
+              <SettingsSwitch label="Also update the default prompt" value={updateDefault} onValueChange={setUpdateDefault} />
+            </SettingsCard>
+          ) : null}
+        </View>
+
         {!props.canOpenComposer ? <Notice styles={styles} theme={theme}>{LAUNCH_UPGRADE_NOTICE}</Notice> : null}
-        {props.canOpenComposer ? (
-          <SettingsSelect
-            label="Launch"
-            hint={effectiveMode === "run" ? TEXT.runModeHint : TEXT.composerModeHint}
-            value={effectiveMode}
-            options={[
-              { value: "run", label: "Start the agent now" },
-              { value: "composer", label: "Open the composer" },
-            ]}
-            onValueChange={(value) => setMode(value as LaunchMode)}
-            disabled={busy}
-          />
-        ) : null}
-        {workspaceOptions.length > 0 ? (
-          <SettingsSelect label="Workspace" value={effectiveTarget} options={workspaceOptions} onValueChange={setTarget} disabled={busy} />
-        ) : null}
-        {newWorktree ? (
-          <>
-            <Field styles={styles} theme={theme} label="Branch" value={branchName} onChangeText={setBranchName} placeholder={generatedBranch} editable={!busy} hint={TEXT.worktreeBranchHint} monospace />
-            <Field styles={styles} theme={theme} label="Base branch" value={baseBranch} onChangeText={setBaseBranch} placeholder="Project default branch" editable={!busy} monospace />
-          </>
-        ) : null}
-        {effectiveMode === "run" ? (
-          <>
-            {catalog.models.length > 0 ? (
+
+        <Group styles={styles} title="Run">
+          <SettingsCard>
+            {props.canOpenComposer ? (
+              <SettingsSelect
+                label="Launch"
+                value={effectiveMode}
+                options={[
+                  { value: "run", label: "Run now" },
+                  { value: "composer", label: "In the composer" },
+                ]}
+                onValueChange={(value) => setMode(value as LaunchMode)}
+                disabled={busy}
+              />
+            ) : null}
+            {workspaceOptions.length > 0 ? (
+              <SettingsSelect label="Workspace" value={effectiveTarget} options={workspaceOptions} onValueChange={setTarget} disabled={busy} />
+            ) : null}
+          </SettingsCard>
+          {newWorktree ? (
+            <View style={[styles.card, { gap: 12 }]}>
+              <Field styles={styles} theme={theme} label="Branch" value={branchName} onChangeText={setBranchName} placeholder={generatedBranch} editable={!busy} hint={TEXT.worktreeBranchHint} monospace />
+              <Field styles={styles} theme={theme} label="Base branch" value={baseBranch} onChangeText={setBaseBranch} placeholder="Project default branch" editable={!busy} monospace />
+            </View>
+          ) : null}
+        </Group>
+
+        {effectiveMode === "run" && catalog.models.length > 0 ? (
+          <Group styles={styles} title="Agent">
+            <SettingsCard>
+              {catalog.providers.length > 1 ? (
+                <SettingsSelect
+                  label="Provider"
+                  value={effectiveProvider}
+                  options={catalog.providers}
+                  onValueChange={(provider) => {
+                    setModel(catalog.defaultModelFor(provider));
+                    setModeId(null);
+                    setThinkingOptionId(null);
+                  }}
+                  disabled={busy}
+                />
+              ) : null}
               <SettingsSelect
                 label="Model"
                 value={effectiveModel}
-                options={catalog.models.map((option) => ({ value: option.value, label: option.label }))}
+                options={providerModels.map((option) => ({ value: option.value, label: option.modelLabel }))}
                 onValueChange={(value) => {
                   setModel(value);
                   setModeId(null);
@@ -254,15 +298,16 @@ export function ExecuteModal(props: {
                 }}
                 disabled={busy}
               />
-            ) : null}
-            {modes.length > 0 ? (
-              <SettingsSelect label="Mode" value={effectiveModeId} options={modes.map((option) => ({ value: option.value, label: option.label }))} onValueChange={setModeId} disabled={busy} />
-            ) : null}
-            {thinkingOptions.length > 0 ? (
-              <SettingsSelect label="Thinking" value={effectiveThinkingOptionId} options={thinkingOptions} onValueChange={setThinkingOptionId} disabled={busy} />
-            ) : null}
-          </>
+              {modes.length > 0 ? (
+                <SettingsSelect label="Mode" value={effectiveModeId} options={modes} onValueChange={setModeId} disabled={busy} />
+              ) : null}
+              {thinkingOptions.length > 0 ? (
+                <SettingsSelect label="Thinking" value={effectiveThinkingOptionId} options={thinkingOptions} onValueChange={setThinkingOptionId} disabled={busy} />
+              ) : null}
+            </SettingsCard>
+          </Group>
         ) : null}
+
         {workspaces.isError ? <Notice styles={styles} theme={theme} kind="warning">Could not list workspaces for this project.</Notice> : null}
         {noWorkspace ? (
           <Notice styles={styles} theme={theme} kind="warning">
@@ -275,7 +320,7 @@ export function ExecuteModal(props: {
             {invalid.reason === "empty" ? "Enter a prompt before launching." : "The prompt is too long."}
           </Notice>
         ) : null}
-        <Text style={styles.mono}>{effectiveMode === "run" ? TEXT.runNotice : TEXT.seedNotice}</Text>
+        <Text style={styles.mono}>{effectiveMode === "run" ? TEXT.runNotice : `${TEXT.composerModeHint} ${TEXT.seedNotice}`}</Text>
         <DialogActions styles={styles}>
           <Button styles={styles} theme={theme} label="Cancel" disabled={busy} onPress={() => props.onOpenChange(false)} />
           {props.onMoveOnly ? <Button styles={styles} theme={theme} label="Move only" disabled={busy} onPress={props.onMoveOnly} /> : null}
