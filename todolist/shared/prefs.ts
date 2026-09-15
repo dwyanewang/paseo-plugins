@@ -18,6 +18,10 @@ export const TodoPrefsSchema = z.object({
   providerModel: z.string().default(""),
   /** Last provider mode id used for a direct run; empty means the provider default. */
   modeId: z.string().default(""),
+  /** Last thinking option used for a direct run, validated against the selected model. */
+  thinkingOptionId: z.string().default(""),
+  /** Last successful launch target for each project; shared by the surface and workspace panel. */
+  workspaceByProject: z.record(z.string(), z.string()).default({}),
 });
 export type TodoPrefs = z.output<typeof TodoPrefsSchema>;
 

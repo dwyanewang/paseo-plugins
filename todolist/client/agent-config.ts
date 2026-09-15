@@ -11,6 +11,8 @@ export interface ModelOption {
   value: string;
   label: string;
   provider: string;
+  thinkingOptions: ModeOption[];
+  defaultThinkingOptionId: string;
 }
 
 export interface ModeOption {
@@ -39,7 +41,7 @@ function usable(entry: SnapshotEntry): boolean {
 
 /**
  * Provider/model catalog for a direct run. The native composer owns the full picker; this only
- * needs enough to name one runnable `provider/model` plus that provider's modes.
+ * reads the same model thinking options and provider modes as agent profiles.
  */
 export function useAgentConfigCatalog(paseo: PaseoApi, enabled: boolean): AgentConfigCatalog {
   const query = useQuery({
@@ -58,7 +60,13 @@ export function useAgentConfigCatalog(paseo: PaseoApi, enabled: boolean): AgentC
       for (const model of entry.models ?? []) {
         if (model.isSelectable === false) continue;
         const value = `${entry.provider}/${model.id}`;
-        models.push({ value, label: `${providerLabel} · ${model.label}`, provider: entry.provider });
+        models.push({
+          value,
+          label: `${providerLabel} · ${model.label}`,
+          provider: entry.provider,
+          thinkingOptions: (model.thinkingOptions ?? []).map((option) => ({ value: option.id, label: option.label })),
+          defaultThinkingOptionId: model.defaultThinkingOptionId ?? model.thinkingOptions?.find((option) => option.isDefault)?.id ?? model.thinkingOptions?.[0]?.id ?? "",
+        });
         if (!first) first = value;
         if (!preferred && model.isDefault) preferred = value;
       }

@@ -36,8 +36,6 @@ export interface TodoStyles {
   noticeDanger: ViewStyle;
   dragHandle: ViewStyle;
   dragging: ViewStyle;
-  columns: ViewStyle;
-  column: ViewStyle;
   detail: ViewStyle;
   gap: number;
 }
@@ -117,8 +115,6 @@ export function useTodoStyles(theme: PluginTheme, compact: boolean): TodoStyles 
       noticeDanger: { borderColor: colors.statusDanger, borderWidth: 1 },
       dragHandle: { padding: 6, borderRadius: 6 },
       dragging: { opacity: 0.6, backgroundColor: colors.surface2 },
-      columns: { flexDirection: compact ? "column" : "row", gap, flex: 1 },
-      column: { flex: 1, gap },
       detail: { gap: 6, paddingTop: 6 },
     };
   }, [theme, compact]);

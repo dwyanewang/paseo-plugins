@@ -38,7 +38,6 @@ export function TodoScreen(props: {
   projectFilter: string | null;
   defaultWorkspaceId: string | null;
   title: string;
-  quickAdd?: boolean;
 }) {
   const { theme, compact } = props;
   const styles = useTodoStyles(theme, compact);
@@ -75,7 +74,6 @@ function TodoReady(props: {
   projectFilter: string | null;
   defaultWorkspaceId: string | null;
   title: string;
-  quickAdd?: boolean;
   styles: ReturnType<typeof useTodoStyles>;
   todo: TodoDocument;
   reload: () => Promise<void>;

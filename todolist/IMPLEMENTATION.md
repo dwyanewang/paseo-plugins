@@ -3,7 +3,7 @@
 Normative source: `/home/yangfei/Private/Dw-Plans/paseo-todo-plugin-hybrid-plan.md`
 (SHA-256 `6a9e374891c3584710e6ee82debddee50a40dce595360b7b18f332a83b6ba155`, 1280 lines)
 Paseo baseline: `main@d7c7044dfc91d1d18721dc8757ac3bb913d8c232`
-Implementation branch: `feat/todo-plugin-hybrid` (uncommitted working tree)
+Implementation branch: `feat/todo-plugin-hybrid`, merged into `rw-main` (`ea8794802`, 2026-09-12)
 
 ## Phase A — daemon Settings access
 
@@ -40,6 +40,8 @@ Implementation branch: `feat/todo-plugin-hybrid` (uncommitted working tree)
 - [x] Global surface, sidebar item, workspace panel, settings screen, Command Center items
 - [x] CRUD, ordering (drag handle + Move up/down), archive/purge, rebind and launch flows
 - [x] Compact layout, theme tokens, keyboard alternatives and accessibility labels
+- Dropped (2026-09-15): wide layout with two columns or side details (plan §13.4). Every width
+  renders the single-column list while a different layout is under consideration.
 
 ## Phase E — release and verification
 
@@ -50,10 +52,11 @@ Implementation branch: `feat/todo-plugin-hybrid` (uncommitted working tree)
       globals, HTML elements, `className`, and DOM handlers; the plugin compiler's runtime-boundary
       check runs against the complete directory in the E2E install)
 - [x] Targeted tests, builds, typechecks, lint and formatting
-- [ ] Platform smoke flows (Electron, browser, iOS, Android, light/dark): not run — no app or daemon
-      built from this branch is running; UI is verified by typecheck, audit, and logic tests only
-- [ ] Deployment to the live daemon: blocked — see the final report (live daemon runs an `rw-main` build
-      without the Phase A/B core APIs and cannot be restarted; dev daemon has no `pluginsEnabled`)
+- [ ] Platform smoke flows (Electron, browser, iOS, Android, light/dark): not run as a recorded
+      matrix. Field use on the live `rw-main` build surfaced the Phase F fixes, but UI is otherwise
+      verified by typecheck, audit, and logic tests only
+- [x] Deployment to the live daemon: `rw-main` contains `feat/todo-plugin-hybrid`, the daemon
+      `config.json` has `pluginsEnabled: true`, and `todo` is installed from this directory
 
 ## Phase F — field fixes (2026-09-13)
 
@@ -79,6 +82,25 @@ Reported after the first live use, all in `client/` plus one new RPC:
       Purge moved behind More.
 - [x] Open workspace / Open agent / Workspace collapsed into one "Open agent" per linked agent,
       with "Open workspace" only for an attempt that named a workspace but has no agent yet.
+
+Deviation from the normative plan: §1 and §3.1.4 leave Provider, Model, Mode and Thinking to the
+native flow, and §13.3 blocks every launch before acquire when `openAgentLaunch` is missing. Direct
+execution picks the model in Todo and needs only `workspace.agents.create`, so the capability guard
+now gates the composer hand-off alone.
+
+## Phase G — launch preferences (2026-09-15)
+
+- [x] Direct execution offers the selected model's Thinking options from the same provider catalog as
+      agent profiles; switching models drops a thinking level the new model does not support.
+- [x] `todo-prefs` stays version 1 with two defaulted fields, `thinkingOptionId` and
+      `workspaceByProject`; existing documents keep their saved model and mode.
+- [x] Each project remembers its last successful launch target, shared by the surface and the
+      workspace panel. An explicit choice in the dialog wins, then the saved workspace, then the
+      current panel; a removed or foreign workspace falls back to an available target.
+- [x] Execute stays disabled while preferences or workspaces load; a launch that succeeds but cannot
+      save its choices reports it with a toast instead of failing silently.
+- [x] Tests: `test/launch-defaults.test.ts` (9), `test/run.test.ts` (3), and the E2E preference
+      round trip across a plugin reload.
 
 ## Acceptance bus
 

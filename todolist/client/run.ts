@@ -14,6 +14,7 @@ export interface RunAgentConfig {
   /** Provider and model in `provider/model` form, as the host agent API expects. */
   providerModel: string;
   modeId?: string;
+  thinkingOptionId?: string;
 }
 
 export interface RunInput {
@@ -143,6 +144,7 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
       config: {
         provider: input.config.providerModel,
         ...(input.config.modeId ? { modeId: input.config.modeId } : {}),
+        ...(input.config.thinkingOptionId ? { thinkingOptionId: input.config.thinkingOptionId } : {}),
       },
       title: input.item.title,
       prompt: input.seedPrompt,

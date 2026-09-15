@@ -27,7 +27,6 @@ export function TodoPanel({ theme, host, layout, navigation, workspaceId }: Plug
       projectFilter={workspace.projectId}
       defaultWorkspaceId={workspaceId}
       title={`Todo · ${workspace.projectDisplayName}`}
-      quickAdd
     />
   );
 }

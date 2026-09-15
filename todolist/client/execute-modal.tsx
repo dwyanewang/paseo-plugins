@@ -1,6 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { usePaseo, useSettings } from "@getpaseo/plugin/client";
-import { Modal } from "@getpaseo/plugin/client/react-native";
+import { Modal, useToast } from "@getpaseo/plugin/client/react-native";
 import { SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
@@ -12,12 +12,11 @@ import type { WorkItem } from "../shared/schema";
 import { useAgentConfigCatalog } from "./agent-config";
 import { Button, Field, Notice } from "./components";
 import type { LaunchTarget } from "./launch";
+import { NEW_WORKSPACE, resolveChoice, resolveWorkspaceTarget } from "./launch-defaults";
 import { LAUNCH_UPGRADE_NOTICE } from "./launch-guard";
 import type { RunAgentConfig } from "./run";
 import type { TodoStyles } from "./styles";
 import { TEXT } from "./text";
-
-const NEW_WORKSPACE = "__new__";
 
 export type ExecuteSubmit =
   | {
@@ -48,6 +47,7 @@ export function ExecuteModal(props: {
 }) {
   const { styles, theme, item } = props;
   const paseo = usePaseo();
+  const toast = useToast();
   const prefs = useSettings(todoPrefs);
   const catalog = useAgentConfigCatalog(paseo, props.open);
   const initialSeedPrompt = item ? deriveSeedPrompt(item) : "";
@@ -57,9 +57,10 @@ export function ExecuteModal(props: {
   // preference and finally to the host default, so a settings load that lands after the dialog
   // opened still applies without overwriting a choice the user already made.
   const [mode, setMode] = useState<LaunchMode | null>(null);
-  const [target, setTarget] = useState<string>(props.defaultWorkspaceId ?? NEW_WORKSPACE);
+  const [target, setTarget] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
   const [modeId, setModeId] = useState<string | null>(null);
+  const [thinkingOptionId, setThinkingOptionId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const stored = prefs.status === "ready" ? prefs.values : null;
@@ -68,11 +69,12 @@ export function ExecuteModal(props: {
     setSeedPrompt(item ? deriveSeedPrompt(item) : "");
     setUpdateDefault(false);
     setBusy(false);
-    setTarget(props.defaultWorkspaceId ?? NEW_WORKSPACE);
+    setTarget(null);
     setMode(null);
     setModel(null);
     setModeId(null);
-  }, [props.open, item, props.defaultWorkspaceId]);
+    setThinkingOptionId(null);
+  }, [props.open, item]);
 
   const effectiveMode: LaunchMode = !props.canOpenComposer ? "run" : (mode ?? stored?.launchMode ?? "run");
 
@@ -95,21 +97,27 @@ export function ExecuteModal(props: {
     () => (effectiveMode === "run" ? existing : [{ value: NEW_WORKSPACE, label: "New workspace" }, ...existing]),
     [existing, effectiveMode],
   );
-  const effectiveTarget =
-    effectiveMode === "run" && (target === NEW_WORKSPACE || !existing.some((option) => option.value === target))
-      ? (existing[0]?.value ?? "")
-      : target;
+  const effectiveTarget = resolveWorkspaceTarget({
+    mode: effectiveMode,
+    selected: target,
+    saved: item ? stored?.workspaceByProject[item.projectId] : undefined,
+    contextual: props.defaultWorkspaceId,
+    workspaces: existing,
+  });
   const known = (value: string | null | undefined) => Boolean(value) && catalog.models.some((option) => option.value === value);
   const effectiveModel = known(model) ? model! : known(stored?.providerModel) ? stored!.providerModel : (catalog.defaultModel ?? "");
   const modes = effectiveModel ? catalog.modesFor(effectiveModel) : [];
   const knownMode = (value: string | null | undefined) => Boolean(value) && modes.some((option) => option.value === value);
   const effectiveModeId = knownMode(modeId) ? modeId! : knownMode(stored?.modeId) ? stored!.modeId : catalog.defaultModeFor(effectiveModel);
+  const selectedModel = catalog.models.find((option) => option.value === effectiveModel);
+  const thinkingOptions = selectedModel?.thinkingOptions ?? [];
+  const effectiveThinkingOptionId = resolveChoice(thinkingOptions, thinkingOptionId, stored?.thinkingOptionId, selectedModel?.defaultThinkingOptionId);
 
   const invalid = validateSeedPrompt(seedPrompt);
   const edited = seedPrompt !== initialSeedPrompt;
   const noWorkspace = effectiveMode === "run" && !workspaces.isPending && existing.length === 0;
   const noModel = effectiveMode === "run" && catalog.status !== "loading" && catalog.models.length === 0;
-  const blocked = Boolean(invalid) || busy || !item || (effectiveMode === "run" && (!effectiveTarget || !effectiveModel));
+  const blocked = Boolean(invalid) || busy || !item || prefs.status === "loading" || workspaces.isPending || !effectiveTarget || (effectiveMode === "run" && !effectiveModel);
 
   async function submit() {
     if (!item || invalid || blocked) return;
@@ -122,23 +130,46 @@ export function ExecuteModal(props: {
       };
       const ok = await props.onSubmit(
         effectiveMode === "run"
-          ? { mode: "run", ...shared, workspaceId: effectiveTarget, config: { providerModel: effectiveModel, ...(effectiveModeId ? { modeId: effectiveModeId } : {}) } }
+          ? {
+              mode: "run",
+              ...shared,
+              workspaceId: effectiveTarget,
+              config: {
+                providerModel: effectiveModel,
+                ...(effectiveModeId ? { modeId: effectiveModeId } : {}),
+                ...(effectiveThinkingOptionId ? { thinkingOptionId: effectiveThinkingOptionId } : {}),
+              },
+            }
           : {
               mode: "composer",
               ...shared,
-              target: target === NEW_WORKSPACE ? { kind: "new" } : { kind: "existing", workspaceId: target },
+              target: effectiveTarget === NEW_WORKSPACE ? { kind: "new" } : { kind: "existing", workspaceId: effectiveTarget },
             },
       );
       if (ok) {
         if (prefs.status === "ready") {
-          const next = { launchMode: effectiveMode, providerModel: effectiveModel, modeId: effectiveModeId };
+          const next = {
+            ...prefs.values,
+            launchMode: effectiveMode,
+            workspaceByProject: { ...prefs.values.workspaceByProject, [item.projectId]: effectiveTarget },
+            ...(effectiveMode === "run" ? {
+              providerModel: effectiveModel,
+              modeId: effectiveModeId,
+              thinkingOptionId: effectiveThinkingOptionId,
+            } : {}),
+          };
           if (
             next.launchMode !== prefs.values.launchMode ||
             next.providerModel !== prefs.values.providerModel ||
-            next.modeId !== prefs.values.modeId
+            next.modeId !== prefs.values.modeId ||
+            next.thinkingOptionId !== prefs.values.thinkingOptionId ||
+            effectiveTarget !== prefs.values.workspaceByProject[item.projectId]
           ) {
-            void prefs.save(next, prefs.revision);
+            const saved = await prefs.save(next, prefs.revision);
+            if (!saved) toast.error("Launch succeeded, but Todo could not remember these choices. Reload Todo before the next launch.");
           }
+        } else {
+          toast.error("Launch succeeded, but Todo preferences are unavailable, so these choices could not be remembered.");
         }
         props.onOpenChange(false);
       }
@@ -165,10 +196,11 @@ export function ExecuteModal(props: {
               { value: "composer", label: "Open the composer" },
             ]}
             onValueChange={(value) => setMode(value as LaunchMode)}
+            disabled={busy}
           />
         ) : null}
         {workspaceOptions.length > 0 ? (
-          <SettingsSelect label="Workspace" value={effectiveTarget} options={workspaceOptions} onValueChange={setTarget} />
+          <SettingsSelect label="Workspace" value={effectiveTarget} options={workspaceOptions} onValueChange={setTarget} disabled={busy} />
         ) : null}
         {effectiveMode === "run" ? (
           <>
@@ -180,11 +212,16 @@ export function ExecuteModal(props: {
                 onValueChange={(value) => {
                   setModel(value);
                   setModeId(null);
+                  setThinkingOptionId(null);
                 }}
+                disabled={busy}
               />
             ) : null}
             {modes.length > 0 ? (
-              <SettingsSelect label="Mode" value={effectiveModeId} options={modes.map((option) => ({ value: option.value, label: option.label }))} onValueChange={setModeId} />
+              <SettingsSelect label="Mode" value={effectiveModeId} options={modes.map((option) => ({ value: option.value, label: option.label }))} onValueChange={setModeId} disabled={busy} />
+            ) : null}
+            {thinkingOptions.length > 0 ? (
+              <SettingsSelect label="Thinking" value={effectiveThinkingOptionId} options={thinkingOptions} onValueChange={setThinkingOptionId} disabled={busy} />
             ) : null}
           </>
         ) : null}

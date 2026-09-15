@@ -18,7 +18,7 @@ branch, which adds the two generic core extensions this plugin needs:
 | Path | Owns |
 | --- | --- |
 | `shared/schema.ts` | Settings document (`todo-data`, version 1): work items, claims, attempts, agent links, retired IDs. |
-| `shared/prefs.ts` | Second settings document (`todo-prefs`, version 1): launch mode and last-used model. Client-written; no business data. |
+| `shared/prefs.ts` | Second settings document (`todo-prefs`, version 1): launch mode, model, mode, thinking, and last-used workspace per project. Client-written; no business data. |
 | `shared/contracts.ts` | Typed RPCs. Every mutation carries `expectedIncarnationId`; errors are stable codes. |
 | `shared/attempt.ts`, `shared/state.ts` | Field-level lattice joins for attempt facts; canonical state mirror and aggregation. |
 | `shared/limits.ts` | Field limits and frozen capacity tiers (see `test/benchmark/RESULTS.md`). |
@@ -44,6 +44,10 @@ branch, which adds the two generic core extensions this plugin needs:
 - Execute has two paths. **Start the agent now** creates the agent in an existing workspace and sends
   the prompt as its first message; **Open the composer** seeds the native draft and you press send.
   Both write the same claim, attempt and correlation labels, so they read and reconcile identically.
+- Direct execution offers the selected model's **Thinking** options, using the same provider
+  catalog as agent profiles. Successful launches remember the choices across clients and reloads.
+  Each project remembers its own workspace; a saved workspace takes precedence over the current
+  panel, and an unavailable workspace falls back to the current panel or an available target.
 - An attempt stays actionable for its whole life: abandon is keyed to the attempt's own claim
   generation, not to whoever holds the claim now, and a finished attempt can be removed from the
   history with `todo.launch.forget` (Todo records only; the agent and workspace are untouched).

@@ -11,6 +11,7 @@ import { acquireLaunch, checkLaunch, createWorkItem, ensureDocument, reportLaunc
 import { computeCreationFingerprint, computeRequestFingerprint } from "../../shared/fingerprint";
 import { buildTodoLabels } from "../../shared/labels";
 import { TODO_SETTINGS_ID, TodoDocumentSchema } from "../../shared/schema";
+import { TODO_PREFS_SETTINGS_ID, TodoPrefsSchema } from "../../shared/prefs";
 
 const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const roots: string[] = [];
@@ -40,6 +41,7 @@ test("todo plugin installs, reconciles native launches without the app, and surv
   });
   const client = new DaemonClient({ url: `ws://127.0.0.1:${daemon.port}/ws`, appVersion: "0.8.0" });
   const settings = settingsRpc(TODO_SETTINGS_ID);
+  const prefs = settingsRpc(TODO_PREFS_SETTINGS_ID);
   const rpc = async <Output>(name: string, input: unknown): Promise<Output> =>
     (await client.invokePluginRpc("todo", name, input)) as Output;
   const readDocument = async () => {
@@ -61,6 +63,16 @@ test("todo plugin installs, reconciles native launches without the app, and surv
     const workspace = await client.createWorkspace({ source: { kind: "directory", path: workspaceDirectory } });
     if (!workspace.workspace) throw new Error("workspace was not created");
     const projectId = workspace.workspace.projectId;
+
+    // Existing preferences gain defaults for the new fields, and launch choices persist on reload.
+    const initialPrefs = prefs.read.output.parse(await rpc(prefs.read.name, {}));
+    if (initialPrefs.status !== "ready") throw new Error("Preferences unavailable");
+    const savedPrefs = TodoPrefsSchema.parse({
+      providerModel: "pi/test",
+      thinkingOptionId: "high",
+      workspaceByProject: { [projectId]: workspace.workspace.id, "another-project": "another-workspace" },
+    });
+    await expect(rpc(prefs.write.name, { revision: initialPrefs.revision, values: savedPrefs })).resolves.toMatchObject({ status: "saved", values: savedPrefs });
 
     const itemId = "wi_e2e_00000000000000001";
     const content = { id: itemId, projectId, title: "Ship the thing", details: "notes", defaultPrompt: "Ship it" };
@@ -121,6 +133,7 @@ test("todo plugin installs, reconciles native launches without the app, and surv
     await expect(client.reloadPlugin("todo")).resolves.toMatchObject({ id: "todo", status: "running" });
     await expect.poll(async () => (await readDocument()).incarnationId, { timeout: 15_000 }).toBe(incarnationId);
     const reloaded = await readDocument();
+    await expect(rpc(prefs.read.name, {})).resolves.toMatchObject({ status: "ready", values: savedPrefs });
     expect(reloaded.agentLinks[agent.id]).toMatchObject({ attemptId, displayState: "closed" });
     expect(reloaded.claims[itemId]).toMatchObject({ attemptId: "att_e2e_0000000000000003", state: "pending" });
     const status = await rpc<{ status: string; degraded: unknown }>("todo.document.status", {});
