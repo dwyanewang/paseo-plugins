@@ -2,13 +2,17 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Modal } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useState } from "react";
 import { Text, View } from "react-native";
-import { WORK_ITEM_STATUS_LABELS } from "../shared/board";
 import { validateWorkItemFields } from "../shared/limits";
-import type { WorkItem, WorkItemStatus } from "../shared/schema";
+import type { WorkItem, WorkItemPriority } from "../shared/schema";
 import { Button, Field, Notice, Select } from "./components";
+import { PriorityPicker, StatusPicker } from "./move-menu";
 import type { ProjectRecord } from "./projects";
 import type { TodoStyles } from "./styles";
 import { TEXT } from "./text";
+
+/** New work starts in one of these; later columns are reached by moving the card. */
+export type StartingStatus = "backlog" | "todo";
+const STARTING_STATUSES = ["backlog", "todo"] as const;
 
 export interface EditorSubmit {
   projectId: string;
@@ -17,7 +21,10 @@ export interface EditorSubmit {
   title: string;
   details: string;
   defaultPrompt: string;
-  status: WorkItemStatus;
+  status: StartingStatus;
+  priority: WorkItemPriority;
+  /** Create, then open the execute dialog for the new card. */
+  execute: boolean;
 }
 
 export function WorkItemEditor(props: {
@@ -28,7 +35,7 @@ export function WorkItemEditor(props: {
   projects: Map<string, ProjectRecord>;
   initialProjectId: string | null;
   /** Column a new item lands in; ignored when editing. */
-  initialStatus: WorkItemStatus;
+  initialStatus: StartingStatus;
   item: WorkItem | null;
   onSubmit: (input: EditorSubmit) => Promise<boolean>;
 }) {
@@ -37,6 +44,8 @@ export function WorkItemEditor(props: {
   const [details, setDetails] = useState(item?.details ?? "");
   const [defaultPrompt, setDefaultPrompt] = useState(item?.defaultPrompt ?? "");
   const [projectId, setProjectId] = useState<string | null>(item?.projectId ?? props.initialProjectId);
+  const [status, setStatus] = useState<StartingStatus>(props.initialStatus);
+  const [priority, setPriority] = useState<WorkItemPriority>(item?.priority ?? "none");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (!props.open) return;
@@ -44,7 +53,9 @@ export function WorkItemEditor(props: {
     setDetails(item?.details ?? "");
     setDefaultPrompt(item?.defaultPrompt ?? "");
     setProjectId(item?.projectId ?? props.initialProjectId);
-  }, [props.open, item, props.initialProjectId]);
+    setStatus(props.initialStatus);
+    setPriority(item?.priority ?? "none");
+  }, [props.open, item, props.initialProjectId, props.initialStatus]);
   const invalid = validateWorkItemFields({ title, details, defaultPrompt });
   const options = useMemo(
     () =>
@@ -56,7 +67,7 @@ export function WorkItemEditor(props: {
   const project = projectId ? props.projects.get(projectId) : undefined;
   const canSubmit = !invalid && Boolean(project) && !busy;
 
-  async function submit() {
+  async function submit(execute: boolean) {
     if (!project || invalid) return;
     setBusy(true);
     try {
@@ -67,7 +78,9 @@ export function WorkItemEditor(props: {
         title: title.trim(),
         details,
         defaultPrompt,
-        status: props.initialStatus,
+        status,
+        priority,
+        execute,
       });
       if (ok) props.onOpenChange(false);
     } finally {
@@ -81,18 +94,26 @@ export function WorkItemEditor(props: {
         <Field styles={styles} theme={theme} label="Title" value={title} onChangeText={setTitle} placeholder="What needs to happen" />
         <Field styles={styles} theme={theme} label="Details" value={details} onChangeText={setDetails} multiline placeholder="Notes for you (not sent to the agent unless you put them in the prompt)" />
         <Field styles={styles} theme={theme} label="Default prompt" value={defaultPrompt} onChangeText={setDefaultPrompt} multiline placeholder="Seed prompt used when you execute this item" />
+        <Text style={styles.muted}>Priority</Text>
+        <PriorityPicker styles={styles} theme={theme} value={priority} onChange={setPriority} />
         {item ? (
           <Text style={styles.muted}>Project: {item.projectNameSnapshot}. Use Rebind project to move it.</Text>
         ) : (
-          <Select styles={styles} theme={theme} label="Project" value={projectId} options={options} onChange={setProjectId} />
+          <>
+            <Select styles={styles} theme={theme} label="Project" value={projectId} options={options} onChange={setProjectId} />
+            <Text style={styles.muted}>Column</Text>
+            <StatusPicker styles={styles} theme={theme} value={status} statuses={STARTING_STATUSES} onChange={(next) => setStatus(next as StartingStatus)} />
+          </>
         )}
         {invalid ? (
           <Notice styles={styles} kind="warning">{`${invalid.field} is ${invalid.reason.replace("_", " ")}.`}</Notice>
         ) : null}
-        {!item ? <Text style={styles.muted}>Column: {WORK_ITEM_STATUS_LABELS[props.initialStatus]}</Text> : null}
         {!item ? <Text style={styles.mono}>{TEXT.seedNotice}</Text> : null}
         <View style={styles.rowWrap}>
-          <Button styles={styles} theme={theme} label={item ? "Save" : "Create"} onPress={() => void submit()} variant="primary" disabled={!canSubmit} />
+          <Button styles={styles} theme={theme} label={item ? "Save" : "Create"} onPress={() => void submit(false)} variant="primary" disabled={!canSubmit} />
+          {!item ? (
+            <Button styles={styles} theme={theme} label="Create and execute" icon="Play" onPress={() => void submit(true)} disabled={!canSubmit} accessibilityHint="Creates the item, then opens the execute dialog for it" />
+          ) : null}
           <Button styles={styles} theme={theme} label="Cancel" onPress={() => props.onOpenChange(false)} />
         </View>
       </Modal.Content>

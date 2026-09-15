@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { deriveAgentStateBucket } from "@getpaseo/protocol/agent-state-bucket";
 import { abandonAttempt, isAttemptOutcomeUnknown, joinAttemptFacts, stageCertainty } from "../shared/attempt";
-import type { AgentLink, Attempt, WorkItem } from "../shared/schema";
+import type { AgentLink, Attempt } from "../shared/schema";
 import { aggregateWorkItem, deriveCanonicalBucket, deriveDisplayState, type AgentStateInput } from "../shared/state";
 import { computeCreationFingerprint, computeRequestFingerprint } from "../shared/fingerprint";
 import { evaluateCapacity, utf8ByteLength, validateWorkItemFields } from "../shared/limits";
-import { rankBetween, rankFromInteger } from "../shared/rank";
 import { NOW } from "./helpers/setup";
 
 /** Shared fixtures: every combination the plan calls out, plus precedence collisions. */
@@ -38,9 +37,6 @@ describe("canonical state mirror", () => {
   }
 });
 
-function item(): WorkItem {
-  return { id: "wi-1", creationFingerprint: "f", version: 1, projectId: "p", projectNameSnapshot: "P", title: "T", details: "", defaultPrompt: "", status: "open", rank: rankFromInteger(1), createdAt: NOW, updatedAt: NOW };
-}
 function attempt(overrides: Partial<Attempt> = {}): Attempt {
   return { id: "att-1", workItemId: "wi-1", claimGeneration: 1, requestFingerprint: "fp", projectIdSnapshot: "p", projectNameSnapshot: "P", titleSnapshot: "T", seedPromptSnapshot: "s", seedPromptSource: "work-item-default", clientMessageId: "m", initiatorLabel: "d", factVersions: {}, userDisposition: "active", createdAt: NOW, updatedAt: NOW, ...overrides };
 }
@@ -50,7 +46,7 @@ function link(overrides: Partial<AgentLink> = {}): AgentLink {
 
 describe("aggregation", () => {
   it("follows permission > error > running > pending > unknown > stale > waiting > closed", () => {
-    const base = { item: item(), claim: undefined, attempts: [] as Attempt[], links: [] as AgentLink[] };
+    const base = { claim: undefined, attempts: [] as Attempt[], links: [] as AgentLink[] };
     expect(aggregateWorkItem(base).state).toBe("idle");
     expect(aggregateWorkItem({ ...base, links: [link({ displayState: "closed" }), link({ agentId: "b", displayState: "waiting_confirmation" })] }).state).toBe("waiting_confirmation");
     expect(aggregateWorkItem({ ...base, links: [link({ displayState: "waiting_confirmation" }), link({ agentId: "b", displayState: "closed", staleSince: NOW })] }).state).toBe("stale");
@@ -72,7 +68,7 @@ describe("aggregation", () => {
     expect(stageCertainty(attempt({ workspaceObservedAt: NOW }), "agent")).toBe("not_submitted");
     const abandoned = abandonAttempt(known, NOW).attempt;
     expect(abandonAttempt(abandoned, NOW).changed).toBe(false);
-    const aggregate = aggregateWorkItem({ item: item(), claim: undefined, attempts: [abandoned], links: [link(), link({ agentId: "b" })] });
+    const aggregate = aggregateWorkItem({ claim: undefined, attempts: [abandoned], links: [link(), link({ agentId: "b" })] });
     expect(aggregate.duplicateAttemptIds).toEqual(["att-1"]);
     expect(aggregate.blockedReason).toBe("active_agent");
   });
@@ -101,12 +97,5 @@ describe("helpers", () => {
     expect(validateWorkItemFields({ details: "é".repeat(16 * 1024 + 1) })).toMatchObject({ field: "details" });
     expect(evaluateCapacity({ beforeBytes: 10, afterBytes: 10, kind: "user", limits: { softLimitBytes: 5, recoveryReserveBytes: 1, absoluteLimitBytes: 8 } })).toMatchObject({ allowed: false, tier: "absolute" });
     expect(evaluateCapacity({ beforeBytes: 10, afterBytes: 9, kind: "user", limits: { softLimitBytes: 5, recoveryReserveBytes: 1, absoluteLimitBytes: 8 } })).toMatchObject({ allowed: true });
-  });
-
-  it("ranks leave gaps and report exhaustion", () => {
-    expect(rankBetween(undefined, undefined)).toBe(rankFromInteger(1_000_000));
-    expect(rankBetween(rankFromInteger(10), rankFromInteger(11))).toBeNull();
-    expect(rankBetween(rankFromInteger(10), rankFromInteger(20))).toBe(rankFromInteger(15));
-    expect(rankBetween(undefined, rankFromInteger(1))).toBeNull();
   });
 });

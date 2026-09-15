@@ -19,7 +19,7 @@ import {
 } from "../shared/contracts";
 import { computeCreationFingerprint } from "../shared/fingerprint";
 import { createId } from "../shared/ids";
-import type { WorkItem, WorkItemStatus } from "../shared/schema";
+import type { WorkItem, WorkItemPriority, WorkItemStatus } from "../shared/schema";
 import { describeTodoError, useTodoInvalidate } from "./data";
 import type { LaunchRpcs } from "./launch";
 
@@ -30,14 +30,10 @@ export interface TodoActions {
   reload: () => Promise<void>;
   launchRpcs: LaunchRpcs;
   ensure: () => Promise<Output<typeof ensureDocument>>;
-  create: (input: { projectId: string; projectNameSnapshot: string; projectRootSnapshot?: string; title: string; details: string; defaultPrompt: string; status?: WorkItemStatus }) => Promise<WorkItem | null>;
-  update: (item: WorkItem, patch: { title?: string; details?: string; defaultPrompt?: string }) => Promise<boolean>;
+  create: (input: { projectId: string; projectNameSnapshot: string; projectRootSnapshot?: string; title: string; details: string; defaultPrompt: string; status?: "backlog" | "todo"; priority?: WorkItemPriority }) => Promise<WorkItem | null>;
+  update: (item: WorkItem, patch: { title?: string; details?: string; defaultPrompt?: string; priority?: WorkItemPriority }) => Promise<boolean>;
   /** Null when the write failed (already reported). `previousStatus` is where the card really was. */
-  move: (
-    item: WorkItem,
-    status: WorkItemStatus,
-    placement?: { expectedProjectOrderVersion: number; beforeId?: string; afterId?: string },
-  ) => Promise<{ previousStatus: WorkItemStatus; placed: boolean } | null>;
+  move: (item: WorkItem, status: WorkItemStatus) => Promise<{ previousStatus: WorkItemStatus } | null>;
   setArchived: (item: WorkItem, archived: boolean) => Promise<boolean>;
   purge: (item: WorkItem, force: boolean) => Promise<boolean>;
   rebind: (item: WorkItem, project: { projectId: string; projectNameSnapshot: string; projectRootSnapshot?: string }) => Promise<boolean>;
@@ -117,9 +113,9 @@ export function useTodoActions(input: { incarnationId: string; reload: () => Pro
         const result = await finish(rpcUpdate({ expectedIncarnationId: incarnationId, id: item.id, expectedVersion: item.version, patch }));
         return result?.status === "ok";
       },
-      async move(item, status, placement) {
-        const result = await finish(rpcMove({ expectedIncarnationId: incarnationId, id: item.id, status, ...(placement ? { placement } : {}) }));
-        return result && result.status === "ok" ? { previousStatus: result.previousStatus, placed: result.placed } : null;
+      async move(item, status) {
+        const result = await finish(rpcMove({ expectedIncarnationId: incarnationId, id: item.id, status }));
+        return result && result.status === "ok" ? { previousStatus: result.previousStatus } : null;
       },
       async setArchived(item, archived) {
         const result = await finish(rpcArchived({ expectedIncarnationId: incarnationId, id: item.id, expectedVersion: item.version, archived }));

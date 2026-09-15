@@ -12,7 +12,6 @@ import {
   moveWorkItem,
   purgeWorkItem,
   rebindWorkItemProject,
-  reorderWorkItem,
   reportLaunchProgress,
   setWorkItemArchived,
   updateWorkItem,
@@ -28,7 +27,6 @@ import {
   moveWorkItemMutation,
   purgeWorkItemMutation,
   rebindWorkItemProjectMutation,
-  reorderWorkItemMutation,
   reportLaunchProgressMutation,
   setWorkItemArchivedMutation,
   updateWorkItemMutation,
@@ -105,14 +103,6 @@ export function registerTodoHandlers(deps: HandlerDeps): void {
   server.handle(updateWorkItem, async (input) => {
     const outcome = await run("work-items.update", input.expectedIncarnationId, "user", (document, now) =>
       updateWorkItemMutation(document, input, now),
-    );
-    if (outcome.status !== "ok") return outcome;
-    return { status: "ok" as const, ...outcome.result, seq: outcome.seq };
-  });
-
-  server.handle(reorderWorkItem, async (input) => {
-    const outcome = await run("work-items.reorder", input.expectedIncarnationId, "user", (document, now) =>
-      reorderWorkItemMutation(document, input, now),
     );
     if (outcome.status !== "ok") return outcome;
     return { status: "ok" as const, ...outcome.result, seq: outcome.seq };

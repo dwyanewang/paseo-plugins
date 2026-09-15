@@ -1,5 +1,5 @@
 import { isAttemptOutcomeUnknown, isAttemptSettled } from "./attempt";
-import type { AgentLink, Attempt, LaunchClaim, TodoAgentDisplayState, WorkItem } from "./schema";
+import type { AgentLink, Attempt, LaunchClaim, TodoAgentDisplayState } from "./schema";
 
 /**
  * Canonical agent state. `@getpaseo/protocol` is not a plugin client module, so this mirrors
@@ -91,7 +91,6 @@ export interface WorkItemAggregate {
 }
 
 export function aggregateWorkItem(input: {
-  item: WorkItem;
   claim: LaunchClaim | undefined;
   attempts: readonly Attempt[];
   links: readonly AgentLink[];

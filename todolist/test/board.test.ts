@@ -5,16 +5,15 @@ import {
   boardLayout,
   buildBoard,
   deriveAutoMove,
-  dropPlacement,
-  dropTargetAt,
+  columnAddAction,
+  compareCards,
+  dropColumnAt,
   formatRelativeTime,
   latestLink,
   matchesSearch,
-  neighboursAt,
   resolveInProgressIntent,
 } from "../shared/board";
 import { buildTodoLabels } from "../shared/labels";
-import { rankFromInteger } from "../shared/rank";
 import type { AgentLink, TodoDocument, WorkItem, WorkItemStatus } from "../shared/schema";
 import { fakeAgent } from "./helpers/fake-paseo";
 import { NOW, baseDocument, withClaim, withWorkItem } from "./helpers/setup";
@@ -205,7 +204,7 @@ function card(id: string, patch: Partial<WorkItem> = {}): { item: WorkItem } {
       status: "todo",
       statusChangedAt: NOW,
       statusReason: "created",
-      rank: rankFromInteger(index * 1000),
+      priority: "none",
       createdAt: NOW,
       updatedAt: NOW,
       ...patch,
@@ -217,7 +216,7 @@ describe("board grouping", () => {
   const cards = [
     card("wi-3", { status: "in_progress" }),
     card("wi-1"),
-    card("wi-2", { rank: rankFromInteger(500) }),
+    card("wi-2", { priority: "high" }),
     card("wi-4", { status: "backlog" }),
     card("wi-5", { status: "cancelled" }),
     card("wi-6", { status: "done", archivedAt: "2026-09-11T11:00:00.000Z" }),
@@ -226,7 +225,7 @@ describe("board grouping", () => {
   ];
   const ids = (views: readonly { item: WorkItem }[]) => views.map((view) => view.item.id);
 
-  it("shows the four active columns in rank order and leaves other projects and archived cards out", () => {
+  it("shows the four active columns by priority, then number, and leaves other projects and archived cards out", () => {
     const board = buildBoard(cards, { projectId: "project-1", filter: "active", query: "" });
     expect(board.columns.map((column) => column.status)).toEqual(["todo", "in_progress", "in_review", "done"]);
     expect(ids(board.columns[0]!.views)).toEqual(["wi-2", "wi-1"]);
@@ -257,13 +256,32 @@ describe("board grouping", () => {
     expect(ids(buildBoard(cards, { projectId: "project-1", filter: "active", query: "#3" }).columns.flatMap((column) => column.views))).toEqual(["wi-3"]);
   });
 
-  it("finds drop neighbours for moving a card up or down a column", () => {
-    const column = ["a", "b", "c", "d"];
-    expect(neighboursAt(column, "c", 1)).toEqual({ beforeId: "a", afterId: "b" });
-    expect(neighboursAt(column, "b", 2)).toEqual({ beforeId: "c", afterId: "d" });
-    expect(neighboursAt(column, "b", 0)).toEqual({ afterId: "a" });
-    expect(neighboursAt(column, "c", 3)).toEqual({ beforeId: "d" });
-    expect(neighboursAt(column, "c", 99)).toEqual({ beforeId: "d" });
+  it("shows every project when no project is selected", () => {
+    const board = buildBoard(cards, { projectId: null, filter: "active", query: "" });
+    expect(ids(board.columns[0]!.views)).toEqual(["wi-2", "wi-1", "wi-8"]);
+  });
+
+  it("orders by priority from urgent down to unset, then by number", () => {
+    const sorted = [
+      card("wi-1", { priority: "low" }),
+      card("wi-2"),
+      card("wi-3", { priority: "urgent" }),
+      card("wi-4", { priority: "medium" }),
+      card("wi-5", { priority: "urgent" }),
+      card("wi-6", { priority: "high" }),
+    ].sort((left, right) => compareCards(left.item, right.item));
+    expect(ids(sorted)).toEqual(["wi-3", "wi-5", "wi-6", "wi-4", "wi-1", "wi-2"]);
+  });
+});
+
+describe("column add actions", () => {
+  it("creates only where work starts, and pulls existing cards into In progress and Done", () => {
+    expect(columnAddAction("backlog")).toEqual({ kind: "create" });
+    expect(columnAddAction("todo")).toEqual({ kind: "create" });
+    expect(columnAddAction("in_progress")).toEqual({ kind: "pick", sources: ["todo", "backlog"], multiple: false });
+    expect(columnAddAction("done")).toEqual({ kind: "pick", sources: ["in_review"], multiple: true });
+    expect(columnAddAction("in_review")).toBeNull();
+    expect(columnAddAction("cancelled")).toBeNull();
   });
 });
 
@@ -331,29 +349,14 @@ describe("moving a card into In progress", () => {
 describe("pointer drop targets", () => {
   const rect = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
   const columns = [
-    { status: "todo" as const, rect: rect(0, 100, 240, 400), cards: [{ id: "a", rect: rect(10, 140, 220, 80) }, { id: "b", rect: rect(10, 230, 220, 80) }, { id: "c", rect: rect(10, 320, 220, 80) }] },
-    { status: "in_review" as const, rect: rect(252, 100, 240, 160), cards: [{ id: "d", rect: rect(262, 140, 220, 80) }] },
+    { status: "todo" as const, rect: rect(0, 100, 240, 400) },
+    { status: "in_review" as const, rect: rect(252, 100, 240, 160) },
   ];
 
-  it("picks the column under the pointer and counts the cards whose middle is above it", () => {
-    expect(dropTargetAt({ x: 100, y: 120 }, columns, "x")).toEqual({ status: "todo", index: 0 });
-    expect(dropTargetAt({ x: 100, y: 275 }, columns, "x")).toEqual({ status: "todo", index: 2 });
-    expect(dropTargetAt({ x: 300, y: 500 }, columns, "x")).toBeNull();
-    // Just below a short column still drops at its end.
-    expect(dropTargetAt({ x: 300, y: 270 }, columns, "x")).toEqual({ status: "in_review", index: 1 });
-    expect(dropTargetAt({ x: 246, y: 200 }, columns, "x")).toBeNull();
-  });
-
-  it("leaves the dragged card out of the count", () => {
-    expect(dropTargetAt({ x: 100, y: 400 }, columns, "a")).toEqual({ status: "todo", index: 2 });
-    expect(dropTargetAt({ x: 100, y: 200 }, columns, "a")).toEqual({ status: "todo", index: 0 });
-  });
-
-  it("turns a drop into neighbours, and a drop back into the same slot into nothing", () => {
-    expect(dropPlacement(["a", "b", "c"], "a", true, 0)).toBeNull();
-    expect(dropPlacement(["a", "b", "c"], "a", true, 2)).toEqual({ beforeId: "c" });
-    expect(dropPlacement(["a", "b", "c"], "c", true, 0)).toEqual({ afterId: "a" });
-    expect(dropPlacement(["d"], "a", false, 0)).toEqual({ afterId: "d" });
-    expect(dropPlacement([], "a", false, 0)).toEqual({});
+  it("picks the column under the pointer, with a margin below short columns", () => {
+    expect(dropColumnAt({ x: 100, y: 120 }, columns)).toBe("todo");
+    expect(dropColumnAt({ x: 300, y: 270 }, columns)).toBe("in_review");
+    expect(dropColumnAt({ x: 300, y: 500 }, columns)).toBeNull();
+    expect(dropColumnAt({ x: 246, y: 200 }, columns)).toBeNull();
   });
 });

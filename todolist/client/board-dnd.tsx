@@ -2,7 +2,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Animated, PanResponder, View, type ScrollView as NativeScrollView } from "react-native";
-import { dropTargetAt, type BoardColumn, type DropTarget, type MeasuredColumn, type Rect } from "../shared/board";
+import { dropColumnAt, type BoardColumn, type MeasuredColumn, type Rect } from "../shared/board";
 import type { WorkItemStatus } from "../shared/schema";
 import type { WorkItemView } from "./data";
 import type { TodoStyles } from "./styles";
@@ -35,35 +35,44 @@ interface Grab {
   pointer: { x: number; y: number; dx: number; dy: number };
 }
 
+export interface DragHandlers {
+  onGrant: (x: number, y: number) => void;
+  onMove: (x: number, y: number, dx: number, dy: number) => void;
+  onRelease: () => void;
+  onCancel: () => void;
+}
+
 export interface BoardDrag {
   draggingId: string | null;
-  target: DropTarget | null;
+  targetStatus: WorkItemStatus | null;
   translate: Animated.ValueXY;
   columnRef: (status: WorkItemStatus) => (view: View | null) => void;
-  cardRef: (id: string) => (view: View | null) => void;
   onScroll: (x: number) => void;
-  handle: (view: WorkItemView) => { onGrant: (x: number, y: number) => void; onMove: (x: number, y: number, dx: number, dy: number) => void; onRelease: () => void; onCancel: () => void };
+  handle: (view: WorkItemView) => DragHandlers;
 }
 
 /**
- * Pointer drag for wide boards. Rects are measured in window coordinates when a card is grabbed;
- * horizontal auto-scroll is folded back in by the scroll delta since then, so hit-testing never
- * re-measures mid-drag. The dragged card is translated in place rather than cloned.
+ * Pointer drag between columns on wide boards. Column rects are measured in window coordinates
+ * when a card is grabbed; horizontal auto-scroll is folded back in by the scroll delta since then,
+ * so hit-testing never re-measures mid-drag. The dragged card is translated in place rather than
+ * cloned. Order inside a column follows priority, so a drop only picks the column.
  */
 export function useBoardDrag(input: {
   columns: BoardColumn<WorkItemView>[];
   scrollRef: RefObject<NativeScrollView | null> | null;
-  onDrop: (view: WorkItemView, target: DropTarget) => void;
+  onDrop: (view: WorkItemView, status: WorkItemStatus) => void;
 }): BoardDrag {
   const columnViews = useRef(new Map<WorkItemStatus, View | null>());
-  const cardViews = useRef(new Map<string, View | null>());
   const scrollX = useRef(0);
   const grab = useRef<Grab | null>(null);
   const ticker = useRef<ReturnType<typeof setInterval> | null>(null);
   const translate = useRef(new Animated.ValueXY()).current;
   const latest = useRef(input);
   latest.current = input;
-  const [state, setState] = useState<{ draggingId: string | null; target: DropTarget | null }>({ draggingId: null, target: null });
+  const [state, setState] = useState<{ draggingId: string | null; targetStatus: WorkItemStatus | null }>({
+    draggingId: null,
+    targetStatus: null,
+  });
 
   useEffect(() => () => {
     if (ticker.current) clearInterval(ticker.current);
@@ -74,16 +83,17 @@ export function useBoardDrag(input: {
     ticker.current = null;
   }
 
+  function targetOf(current: Grab): WorkItemStatus | null {
+    if (!current.columns) return null;
+    return dropColumnAt({ x: current.pointer.x + scrollX.current - current.scrollX, y: current.pointer.y }, current.columns);
+  }
+
   function update() {
     const current = grab.current;
     if (!current) return;
-    const shift = scrollX.current - current.scrollX;
-    translate.setValue({ x: current.pointer.dx + shift, y: current.pointer.dy });
-    if (!current.columns) return;
-    const target = dropTargetAt({ x: current.pointer.x + shift, y: current.pointer.y }, current.columns, current.view.item.id);
-    setState((previous) =>
-      previous.target?.status === target?.status && previous.target?.index === target?.index ? previous : { ...previous, target },
-    );
+    translate.setValue({ x: current.pointer.dx + scrollX.current - current.scrollX, y: current.pointer.dy });
+    const targetStatus = targetOf(current);
+    setState((previous) => (previous.targetStatus === targetStatus ? previous : { ...previous, targetStatus }));
   }
 
   function autoScroll() {
@@ -119,26 +129,17 @@ export function useBoardDrag(input: {
     };
   }, []);
 
-  const cardRef = useMemo(() => {
-    const cache = new Map<string, (view: View | null) => void>();
-    return (id: string) => {
-      let ref = cache.get(id);
-      if (!ref) {
-        ref = (view) => {
-          if (view) cardViews.current.set(id, view);
-          else cardViews.current.delete(id);
-        };
-        cache.set(id, ref);
-      }
-      return ref;
-    };
-  }, []);
+  function reset() {
+    stopTicker();
+    grab.current = null;
+    translate.setValue({ x: 0, y: 0 });
+    setState({ draggingId: null, targetStatus: null });
+  }
 
   return {
     ...state,
     translate,
     columnRef,
-    cardRef,
     onScroll: (x) => {
       scrollX.current = x;
       update();
@@ -148,24 +149,16 @@ export function useBoardDrag(input: {
         const started: Grab = { view, columns: null, viewport: null, scrollX: scrollX.current, maxScrollX: 0, pointer: { x, y, dx: 0, dy: 0 } };
         grab.current = started;
         translate.setValue({ x: 0, y: 0 });
-        setState({ draggingId: view.item.id, target: null });
+        setState({ draggingId: view.item.id, targetStatus: null });
         void (async () => {
           const columns = await Promise.all(
-            latest.current.columns.map(async (column) => ({
-              status: column.status,
-              rect: await measure(columnViews.current.get(column.status)),
-              cards: await Promise.all(column.views.map(async (entry) => ({ id: entry.item.id, rect: await measure(cardViews.current.get(entry.item.id)) }))),
-            })),
+            latest.current.columns.map(async (column) => ({ status: column.status, rect: await measure(columnViews.current.get(column.status)) })),
           );
           const viewport = latest.current.scrollRef?.current ? await measure(latest.current.scrollRef.current as unknown as View) : null;
           if (grab.current !== started) return;
           started.scrollX = scrollX.current;
           started.viewport = viewport;
-          started.columns = columns.flatMap((column) =>
-            column.rect
-              ? [{ status: column.status, rect: column.rect, cards: column.cards.flatMap((card) => (card.rect ? [{ id: card.id, rect: card.rect }] : [])) }]
-              : [],
-          );
+          started.columns = columns.flatMap((column) => (column.rect ? [{ status: column.status, rect: column.rect }] : []));
           const rowRight = Math.max(0, ...started.columns.map((column) => column.rect.x + column.rect.width));
           started.maxScrollX = viewport ? Math.max(0, started.scrollX + rowRight - (viewport.x + viewport.width)) : 0;
           update();
@@ -179,25 +172,11 @@ export function useBoardDrag(input: {
       },
       onRelease: () => {
         const current = grab.current;
-        stopTicker();
-        grab.current = null;
-        translate.setValue({ x: 0, y: 0 });
-        const target = current?.columns
-          ? dropTargetAt(
-              { x: current.pointer.x + scrollX.current - current.scrollX, y: current.pointer.y },
-              current.columns,
-              current.view.item.id,
-            )
-          : null;
-        setState({ draggingId: null, target: null });
-        if (current && target && (current.pointer.dx !== 0 || current.pointer.dy !== 0)) latest.current.onDrop(current.view, target);
+        const targetStatus = current ? targetOf(current) : null;
+        reset();
+        if (current && targetStatus && targetStatus !== current.view.item.status) latest.current.onDrop(current.view, targetStatus);
       },
-      onCancel: () => {
-        stopTicker();
-        grab.current = null;
-        translate.setValue({ x: 0, y: 0 });
-        setState({ draggingId: null, target: null });
-      },
+      onCancel: reset,
     }),
   };
 }
@@ -207,11 +186,7 @@ export function useBoardDrag(input: {
  * it is only rendered where no touch scrolling competes for it. It is hidden from assistive
  * technology: the move menu is the accessible way to move a card.
  */
-export function DragHandle(props: {
-  styles: TodoStyles;
-  theme: PluginTheme;
-  handlers: ReturnType<BoardDrag["handle"]>;
-}) {
+export function DragHandle(props: { styles: TodoStyles; theme: PluginTheme; handlers: DragHandlers }) {
   const handlers = useRef(props.handlers);
   handlers.current = props.handlers;
   const responder = useMemo(

@@ -2,11 +2,11 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import type { ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
-import { WORK_ITEM_STATUS_LABELS, formatRelativeTime, latestLink } from "../shared/board";
+import { WORK_ITEM_PRIORITY_LABELS, WORK_ITEM_STATUS_LABELS, formatRelativeTime, latestLink } from "../shared/board";
 import { Badge } from "./components";
 import type { WorkItemView } from "./data";
 import type { TodoStyles } from "./styles";
-import { AGGREGATE_PRESENTATION, CARD_BADGE_STATES, DISPLAY_STATE_COLOR, DISPLAY_STATE_PRESENTATION } from "./text";
+import { AGGREGATE_PRESENTATION, CARD_BADGE_STATES, DISPLAY_STATE_COLOR, DISPLAY_STATE_PRESENTATION, PRIORITY_PRESENTATION } from "./text";
 
 export function BoardCard(props: {
   styles: TodoStyles;
@@ -18,6 +18,8 @@ export function BoardCard(props: {
   onOpenAgent: ((agentId: string) => void) | null;
   /** Outside the columns (the Archived list) the card names its column itself. */
   showStatus?: boolean;
+  /** When the board shows every project, each card names its own. */
+  showProject?: boolean;
   /** Grip for pointer drag on wide boards. */
   dragHandle?: ReactNode;
 }) {
@@ -26,6 +28,7 @@ export function BoardCard(props: {
   const presentation = AGGREGATE_PRESENTATION[aggregate.state];
   const latest = latestLink(links);
   const agent = latest ? DISPLAY_STATE_PRESENTATION[latest.displayState] : null;
+  const priority = PRIORITY_PRESENTATION[item.priority];
   // Open, move and agent targets are siblings: a pressable nested in a pressable renders as a
   // button inside a button on the web, which is invalid and misroutes clicks.
   return (
@@ -34,17 +37,23 @@ export function BoardCard(props: {
         {props.dragHandle}
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`#${item.number} ${item.title}, ${WORK_ITEM_STATUS_LABELS[item.status]}, ${presentation.label}`}
+          accessibilityLabel={`#${item.number} ${item.title}, ${WORK_ITEM_STATUS_LABELS[item.status]}, ${WORK_ITEM_PRIORITY_LABELS[item.priority]}, ${presentation.label}`}
           accessibilityHint="Opens details. Long press for move actions."
           onPress={() => props.onOpen(view)}
           onLongPress={() => props.onMenu(view)}
           style={{ flex: 1, gap: 6 }}
         >
           <View style={styles.row}>
-            <Text style={[styles.mono, { flex: 1 }]}>
+            <Text style={[styles.mono, { flex: 1 }]} numberOfLines={1}>
               #{item.number}
               {props.showStatus ? ` · ${WORK_ITEM_STATUS_LABELS[item.status]}` : ""}
             </Text>
+            {item.priority !== "none" ? (
+              <View style={styles.badge}>
+                <Icon name={priority.icon} size={12} color={theme.colors[priority.color]} />
+                <Text style={[styles.badgeText, { color: theme.colors[priority.color] }]}>{WORK_ITEM_PRIORITY_LABELS[item.priority]}</Text>
+              </View>
+            ) : null}
             {CARD_BADGE_STATES.has(aggregate.state) ? (
               <Badge styles={styles} theme={theme} label={presentation.label} icon={presentation.icon} tone={presentation.tone} />
             ) : null}
@@ -52,6 +61,15 @@ export function BoardCard(props: {
           <Text style={styles.title} numberOfLines={2}>
             {item.title}
           </Text>
+          {/* Its own line: squeezed next to the number and a priority badge, the name was unreadable. */}
+          {props.showProject ? (
+            <View style={[styles.row, { gap: 4 }]}>
+              <Icon name="Folder" size={12} color={theme.colors.foregroundMuted} />
+              <Text style={[styles.mono, { flexShrink: 1 }]} numberOfLines={1}>
+                {item.projectNameSnapshot}
+              </Text>
+            </View>
+          ) : null}
           {item.details ? (
             <Text style={styles.muted} numberOfLines={2}>
               {item.details}

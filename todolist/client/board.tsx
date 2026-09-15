@@ -1,8 +1,8 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
-import { Fragment, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Animated, Pressable, Text, View, type ScrollView as NativeScrollView } from "react-native";
-import { BOARD_COLUMN_WIDTH, WORK_ITEM_STATUS_LABELS, boardLayout, type BoardColumn, type DropTarget } from "../shared/board";
+import { BOARD_COLUMN_WIDTH, WORK_ITEM_STATUS_LABELS, boardLayout, columnAddAction, type BoardColumn } from "../shared/board";
 import type { WorkItemStatus } from "../shared/schema";
 import { DragHandle, useBoardDrag, type BoardDrag } from "./board-dnd";
 import { Button, Chip } from "./components";
@@ -19,7 +19,8 @@ function Column(props: {
   column: BoardColumn<WorkItemView>;
   width?: number;
   renderCard: (view: WorkItemView, dragHandle?: ReactNode) => ReactNode;
-  onCreate: (status: WorkItemStatus) => void;
+  /** The column's "+": create in Backlog and To do, pick existing cards for In progress and Done. */
+  onAdd: (status: WorkItemStatus) => void;
   /** Present on wide layouts only. */
   drag: BoardDrag | null;
 }) {
@@ -28,11 +29,9 @@ function Column(props: {
   const label = WORK_ITEM_STATUS_LABELS[column.status];
   const presentation = STATUS_PRESENTATION[column.status];
   const hidden = column.views.length - limit;
-  const dropIndex = drag?.target?.status === column.status ? drag.target.index : null;
-  const holdsDragged = drag?.draggingId !== null && column.views.some((view) => view.item.id === drag?.draggingId);
-  const indicator = <View style={styles.dropIndicator} />;
-  // The drop slot counts cards with the dragged one left out, so walk the column the same way.
-  let slot = 0;
+  const add = columnAddAction(column.status);
+  const holdsDragged = drag?.draggingId != null && column.views.some((view) => view.item.id === drag.draggingId);
+  const dropTarget = drag?.draggingId != null && drag.targetStatus === column.status && !holdsDragged;
   return (
     <View
       ref={drag?.columnRef(column.status)}
@@ -40,41 +39,39 @@ function Column(props: {
       style={[
         styles.column,
         props.width ? { width: props.width } : { flex: 1, minWidth: 0 },
-        dropIndex !== null ? styles.columnDropTarget : null,
+        dropTarget ? styles.columnDropTarget : null,
         holdsDragged ? { zIndex: 1 } : null,
       ]}
     >
-      <View style={styles.row}>
+      {/* Fixed height: columns without a "+" keep their title in line with the rest. */}
+      <View style={[styles.row, { minHeight: 24 }]}>
         <Icon name={presentation.icon} size={14} color={theme.colors[presentation.color]} />
         <Text style={styles.columnTitle}>{label}</Text>
         <Text style={[styles.mono, { flex: 1 }]}>{column.views.length}</Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`New item in ${label}`}
-          hitSlop={8}
-          onPress={() => props.onCreate(column.status)}
-          style={styles.iconButton}
-        >
-          <Icon name="Plus" size={16} color={theme.colors.foregroundMuted} />
-        </Pressable>
+        {add ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={add.kind === "create" ? `New item in ${label}` : `Add existing cards to ${label}`}
+            hitSlop={8}
+            onPress={() => props.onAdd(column.status)}
+            style={styles.iconButton}
+          >
+            <Icon name="Plus" size={16} color={theme.colors.foregroundMuted} />
+          </Pressable>
+        ) : null}
       </View>
       {column.views.slice(0, limit).map((view) => {
         const dragged = drag?.draggingId === view.item.id;
-        const before = !dragged && slot === dropIndex;
-        if (!dragged) slot += 1;
         return (
-          <Fragment key={view.item.id}>
-            {before ? indicator : null}
-            <View ref={drag?.cardRef(view.item.id)}>
-              <Animated.View style={dragged && drag ? { transform: drag.translate.getTranslateTransform(), opacity: 0.95, zIndex: 1 } : null}>
-                {props.renderCard(view, drag ? <DragHandle styles={styles} theme={theme} handlers={drag.handle(view)} /> : undefined)}
-              </Animated.View>
-            </View>
-          </Fragment>
+          <Animated.View
+            key={view.item.id}
+            style={dragged && drag ? { transform: drag.translate.getTranslateTransform(), opacity: 0.95, zIndex: 1 } : null}
+          >
+            {props.renderCard(view, drag ? <DragHandle styles={styles} theme={theme} handlers={drag.handle(view)} /> : undefined)}
+          </Animated.View>
         );
       })}
-      {dropIndex !== null && dropIndex >= slot ? indicator : null}
-      {column.views.length === 0 && dropIndex === null ? <Text style={styles.muted}>No items</Text> : null}
+      {column.views.length === 0 ? <Text style={styles.muted}>No items</Text> : null}
       {hidden > 0 ? (
         <Button
           styles={styles}
@@ -99,8 +96,8 @@ export function TodoBoard(props: {
   columns: BoardColumn<WorkItemView>[];
   width: number;
   renderCard: (view: WorkItemView, dragHandle?: ReactNode) => ReactNode;
-  onCreate: (status: WorkItemStatus) => void;
-  onDrop: (view: WorkItemView, target: DropTarget) => void;
+  onAdd: (status: WorkItemStatus) => void;
+  onDrop: (view: WorkItemView, status: WorkItemStatus) => void;
 }) {
   const { styles, theme, columns } = props;
   const [tab, setTab] = useState<WorkItemStatus | null>(null);
@@ -115,7 +112,7 @@ export function TodoBoard(props: {
       column={entry}
       {...(width ? { width } : {})}
       renderCard={props.renderCard}
-      onCreate={props.onCreate}
+      onAdd={props.onAdd}
       drag={layout === "tabs" ? null : drag}
     />
   );

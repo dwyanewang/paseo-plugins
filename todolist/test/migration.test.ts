@@ -33,15 +33,15 @@ function link(document: TodoDocument, workItemId: string, agentId: string, statu
 function toVersion1(document: TodoDocument, done: readonly string[], createdAt: Record<string, string>) {
   const workItems = Object.fromEntries(
     Object.values(document.workItems).map((item) => {
-      const { number: _number, statusChangedAt: _changed, statusReason: _reason, status: _status, ...rest } = item;
+      const { number: _number, statusChangedAt: _changed, statusReason: _reason, status: _status, priority: _priority, ...rest } = item;
       return [
         item.id,
-        { ...rest, status: done.includes(item.id) ? "done" : "open", createdAt: createdAt[item.id] ?? item.createdAt, updatedAt: `updated-${item.id}` },
+        { ...rest, rank: `r${item.id}`, status: done.includes(item.id) ? "done" : "open", createdAt: createdAt[item.id] ?? item.createdAt, updatedAt: `updated-${item.id}` },
       ];
     }),
   );
   const { nextWorkItemNumber: _next, ...rest } = document;
-  return JSON.parse(JSON.stringify({ ...rest, workItems }));
+  return JSON.parse(JSON.stringify({ ...rest, projectOrderVersions: { "project-1": 6 }, workItems }));
 }
 
 function fixture() {
@@ -79,9 +79,9 @@ function fixture() {
   });
 }
 
-describe("todo-data version 1 → 2", () => {
+describe("todo-data migrations", () => {
   it("is wired into the settings definition", () => {
-    expect(TODO_SETTINGS_VERSION).toBe(2);
+    expect(TODO_SETTINGS_VERSION).toBe(3);
     expect(todoData.migrate).toBe(migrateTodoDocument);
   });
 
@@ -96,7 +96,28 @@ describe("todo-data version 1 → 2", () => {
       finished: "in_review",
       done: "done",
     });
-    expect(migrated.workItems.finished).toMatchObject({ statusReason: "migration", statusChangedAt: "updated-finished" });
+    expect(migrated.workItems.finished).toMatchObject({ statusReason: "migration", statusChangedAt: "updated-finished", priority: "none" });
+  });
+
+  it("drops manual ordering and gives every item an unset priority, from version 1 or 2", () => {
+    const fromV1 = migrateTodoDocument(fixture(), 1) as Record<string, unknown> & { workItems: Record<string, Record<string, unknown>> };
+    expect(fromV1.projectOrderVersions).toBeUndefined();
+    expect(Object.values(fromV1.workItems).every((item) => !("rank" in item) && item.priority === "none")).toBe(true);
+
+    const current = TodoDocumentSchema.parse(migrateTodoDocument(fixture(), 1));
+    const version2 = JSON.parse(
+      JSON.stringify({
+        ...current,
+        projectOrderVersions: { "project-1": 4 },
+        workItems: Object.fromEntries(
+          Object.values(current.workItems).map(({ priority: _priority, ...item }) => [item.id, { ...item, rank: `r${item.number}` }]),
+        ),
+      }),
+    );
+    const fromV2 = migrateTodoDocument(version2, 2) as Record<string, unknown> & { workItems: Record<string, Record<string, unknown>> };
+    expect(fromV2.projectOrderVersions).toBeUndefined();
+    expect(Object.values(fromV2.workItems).every((item) => !("rank" in item) && item.priority === "none")).toBe(true);
+    expect(TodoDocumentSchema.parse(fromV2)).toEqual(current);
   });
 
   it("numbers items by creation time, then by ID, and continues from there", () => {

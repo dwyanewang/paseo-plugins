@@ -8,26 +8,25 @@ import {
   BOARD_COLUMN_WIDTH,
   WORK_ITEM_STATUS_LABELS,
   buildBoard,
-  dropPlacement,
-  neighboursAt,
+  columnAddAction,
   resolveInProgressIntent,
   type BoardFilter,
-  type DropTarget,
 } from "../shared/board";
 import { documentStatus } from "../shared/contracts";
 import { todoPrefs } from "../shared/prefs";
-import type { Attempt, TodoDocument, WorkItemStatus } from "../shared/schema";
+import type { Attempt, TodoDocument, WorkItem, WorkItemStatus } from "../shared/schema";
+import { aggregateWorkItem } from "../shared/state";
 import { TodoBoard } from "./board";
 import { BoardCard } from "./board-card";
 import { BoardToolbar, ProjectPicker, type ProjectOption } from "./board-toolbar";
 import { CardDetail, type CardActions } from "./card-detail";
+import { CardPicker, type PickRequest } from "./card-picker";
 import { Button, ConfirmModal, Notice } from "./components";
 import { ContinueModal, type StartRequest } from "./continue-modal";
 import { useTodoDocument, useWorkItemViews, type WorkItemView } from "./data";
 import { ExecuteModal, type ExecuteSubmit } from "./execute-modal";
 import { sendFollowUp } from "./follow-up";
 import { executeWorkItem, openForAttempt, type ExecuteResult } from "./launch";
-import { resolveChoice } from "./launch-defaults";
 import { resolveLaunchCapability } from "./launch-guard";
 import { MoveMenu } from "./move-menu";
 import { useProjectCache } from "./projects";
@@ -36,10 +35,9 @@ import { runWorkItemNow } from "./run";
 import { useTodoStyles } from "./styles";
 import { TEXT } from "./text";
 import { useTodoActions } from "./use-todo-actions";
-import { RebindModal, WorkItemEditor } from "./work-item-editor";
+import { RebindModal, WorkItemEditor, type StartingStatus } from "./work-item-editor";
 
 type Navigation = PluginSurfaceProps["navigation"];
-type Placement = { expectedProjectOrderVersion: number; beforeId?: string; afterId?: string };
 
 function initiatorLabel(platform: string, hostLabel: string): string {
   const device = platform === "ios" ? "iPhone/iPad" : platform === "android" ? "Android" : "Desktop/Web";
@@ -124,11 +122,12 @@ function TodoReady(props: {
   const [width, setWidth] = useState(0);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
-  const [editor, setEditor] = useState<{ open: boolean; view: WorkItemView | null; status: WorkItemStatus }>({ open: false, view: null, status: "todo" });
+  const [editor, setEditor] = useState<{ open: boolean; view: WorkItemView | null; status: StartingStatus }>({ open: false, view: null, status: "todo" });
+  const [pick, setPick] = useState<PickRequest | null>(null);
   const [rebind, setRebind] = useState<WorkItemView | null>(null);
   // `moveOnSubmit`: opened by moving the card into In progress, which happens once the user confirms.
-  const [execute, setExecute] = useState<{ view: WorkItemView; retryAnyway: boolean; moveOnSubmit?: Placement | true } | null>(null);
-  const [start, setStart] = useState<(StartRequest & { placement?: Placement }) | null>(null);
+  const [execute, setExecute] = useState<{ view: WorkItemView; retryAnyway: boolean; moveOnSubmit?: boolean } | null>(null);
+  const [start, setStart] = useState<StartRequest | null>(null);
   const [confirm, setConfirm] = useState<{ title: string; message: string; label: string; requireDouble: boolean; run: () => Promise<unknown> } | null>(null);
   const [armed, setArmed] = useState(false);
   const [checking, setChecking] = useState<string | null>(null);
@@ -156,22 +155,26 @@ function TodoReady(props: {
         available: !ready,
       });
     }
-    return [...options.values()].sort((left, right) => Number(right.available) - Number(left.available) || left.label.localeCompare(right.label));
+    const counts = new Map<string, number>();
+    for (const { item } of views.values()) if (!item.archivedAt) counts.set(item.projectId, (counts.get(item.projectId) ?? 0) + 1);
+    const sorted = [...options.values()]
+      .sort((left, right) => Number(right.available) - Number(left.available) || left.label.localeCompare(right.label))
+      .map((option) => ({ ...option, hint: `${counts.get(option.value) ?? 0} open · ${option.hint ?? ""}` }));
+    const total = [...counts.values()].reduce((sum, count) => sum + count, 0);
+    return [{ value: "", label: "All projects", hint: `${total} open`, available: true }, ...sorted];
   }, [projectCache, views]);
+  // The global board shows every project unless a filter is saved; "" in prefs means all of them.
   const savedProjectId = prefs.status === "ready" ? prefs.values.boardProjectId : "";
-  const projectId = props.projectFilter ?? (resolveChoice(projectOptions, pickedProjectId, savedProjectId, null) || null);
-  const projectLabel = projectOptions.find((option) => option.value === projectId)?.label;
-  const projectAvailable = projectId !== null && (projectCache.status !== "ready" || projectCache.projects.has(projectId));
-  const canCreate = projectAvailable && projectCache.status === "ready";
+  const chosenProjectId = pickedProjectId ?? savedProjectId;
+  const projectId: string | null =
+    props.projectFilter ?? (chosenProjectId && projectOptions.some((option) => option.value === chosenProjectId) ? chosenProjectId : null);
+  const projectLabel = projectOptions.find((option) => option.value === (projectId ?? ""))?.label ?? "All projects";
+  const isProjectAvailable = (id: string) => projectCache.status !== "ready" || projectCache.projects.has(id);
+  const canCreate = projectCache.status === "ready" && projectCache.projects.size > 0 && (projectId === null || isProjectAvailable(projectId));
 
-  const board = useMemo(
-    () => (projectId ? buildBoard(views.values(), { projectId, filter, query }) : { columns: [], archived: [] }),
-    [views, projectId, filter, query],
-  );
+  const board = useMemo(() => buildBoard(views.values(), { projectId, filter, query }), [views, projectId, filter, query]);
   const detailView = detailId ? (views.get(detailId) ?? null) : null;
   const menuView = menuId ? (views.get(menuId) ?? null) : null;
-  const menuColumn = menuView ? board.columns.find((column) => column.status === menuView.item.status) : undefined;
-  const menuIndex = menuColumn && menuView ? menuColumn.views.findIndex((entry) => entry.item.id === menuView.item.id) : -1;
 
   function pickProject(id: string) {
     setPickedProjectId(id);
@@ -181,13 +184,10 @@ function TodoReady(props: {
   }
 
   const moveCard = useCallback(
-    async (view: WorkItemView, next: WorkItemStatus, placement?: Placement) => {
-      const result = await actions.move(view.item, next, placement);
-      if (!result) return;
-      if (result.previousStatus !== view.item.status) {
+    async (view: WorkItemView, next: WorkItemStatus) => {
+      const result = await actions.move(view.item, next);
+      if (result && result.previousStatus !== view.item.status) {
         toast.show(`#${view.item.number} had already moved to ${WORK_ITEM_STATUS_LABELS[result.previousStatus]}.`, { variant: "info" });
-      } else if (placement && !result.placed) {
-        toast.show("The order changed elsewhere, so the card kept its place. Try again.", { variant: "info" });
       }
     },
     [actions, toast],
@@ -200,14 +200,14 @@ function TodoReady(props: {
    * card moves when the user confirms.
    */
   const requestMove = useCallback(
-    (view: WorkItemView, next: WorkItemStatus, placement?: Placement) => {
+    (view: WorkItemView, next: WorkItemStatus) => {
       if (next !== "in_progress" || view.item.status === "in_progress") {
-        void moveCard(view, next, placement);
+        void moveCard(view, next);
         return;
       }
       const intent = resolveInProgressIntent(view);
       if (intent.kind === "move_only") {
-        void moveCard(view, next, placement);
+        void moveCard(view, next);
         toast.show(
           intent.reason === "agent_active" ? "An agent is already running, so nothing new was started." : "A launch is still in flight, so nothing new was started.",
           { variant: "info" },
@@ -215,38 +215,40 @@ function TodoReady(props: {
         return;
       }
       if (intent.kind === "execute") {
-        setExecute({ view, retryAnyway: false, moveOnSubmit: placement ?? true });
+        setExecute({ view, retryAnyway: false, moveOnSubmit: true });
         return;
       }
-      setStart({ viewId: view.item.id, intent, move: true, ...(placement ? { placement } : {}) });
+      setStart({ viewId: view.item.id, intent, move: true });
     },
     [moveCard, toast],
   );
 
-  /** A drop is a move with a position; into In progress it opens the same dialogs as the menu. */
-  function dropCard(view: WorkItemView, target: DropTarget) {
-    const column = board.columns.find((entry) => entry.status === target.status);
-    if (!column) return;
-    const neighbours = dropPlacement(
-      column.views.map((entry) => entry.item.id),
-      view.item.id,
-      view.item.status === target.status,
-      target.index,
-    );
-    if (!neighbours) return;
-    requestMove(view, target.status, {
-      expectedProjectOrderVersion: todo.projectOrderVersions[view.item.projectId] ?? 0,
-      ...neighbours,
-    });
+  /**
+   * A column's "+": Backlog and To do create a card there; In progress and Done pull existing cards
+   * in, from every matching card under the current project filter and search.
+   */
+  function addToColumn(status: WorkItemStatus) {
+    const action = columnAddAction(status);
+    if (!action) return;
+    if (action.kind === "create") {
+      openEditor(status as StartingStatus);
+      return;
+    }
+    const everything = buildBoard(views.values(), { projectId, filter: "all", query });
+    const groups = action.sources.map((source) => everything.columns.find((column) => column.status === source) ?? { status: source, views: [] });
+    setPick({ target: status, groups, multiple: action.multiple });
   }
 
-  function shiftCard(view: WorkItemView, offset: -1 | 1) {
-    if (!menuColumn || menuIndex < 0) return;
-    const ids = menuColumn.views.map((entry) => entry.item.id);
-    void moveCard(view, view.item.status, {
-      expectedProjectOrderVersion: todo.projectOrderVersions[view.item.projectId] ?? 0,
-      ...neighboursAt(ids, view.item.id, menuIndex + offset),
-    });
+  async function confirmPick(target: WorkItemStatus, picked: WorkItemView[]) {
+    setPick(null);
+    if (target === "in_progress") {
+      // One card; the move opens the execute or continue dialog once the picker has closed.
+      if (picked[0]) requestMove(picked[0], "in_progress");
+      return;
+    }
+    let moved = 0;
+    for (const view of picked) if (await actions.move(view.item, target)) moved += 1;
+    if (moved > 0) toast.show(`Marked ${moved} ${moved === 1 ? "card" : "cards"} ${WORK_ITEM_STATUS_LABELS[target]}.`, { variant: "success" });
   }
 
   const handleLaunchResult = useCallback(
@@ -342,12 +344,14 @@ function TodoReady(props: {
           run: () => actions.forget({ workItemId: view.item.id, attemptId: attempt.id }),
         }),
       check: (view) => void runCheck(view),
-      edit: (view) => setEditor({ open: true, view, status: view.item.status }),
+      // The column only matters when creating; an edit keeps the card where it is.
+      edit: (view) => setEditor({ open: true, view, status: "todo" }),
       move: (view, next) => requestMove(view, next),
       continueAgent: (view) => {
         const intent = resolveInProgressIntent(view);
         if (intent.kind === "continue") setStart({ viewId: view.item.id, intent, move: view.item.status !== "in_progress" });
       },
+      setPriority: (view, priority) => void actions.update(view.item, { priority }),
       setArchived: (view, archived) => void actions.setArchived(view.item, archived),
       purge: (view) => {
         const force = view.attempts.some((attempt) => attempt.userDisposition === "abandoned") && view.aggregate.unknownAttemptIds.length > 0;
@@ -403,7 +407,7 @@ function TodoReady(props: {
     let item = execute.view.item;
     if (execute.moveOnSubmit && item.status !== "in_progress") {
       // The user moved the card here and confirmed; it stays in In progress even if the launch fails.
-      const moved = await actions.move(item, "in_progress", execute.moveOnSubmit === true ? undefined : execute.moveOnSubmit);
+      const moved = await actions.move(item, "in_progress");
       if (!moved) return false;
       item = { ...item, status: "in_progress" };
     }
@@ -442,12 +446,17 @@ function TodoReady(props: {
     return handleLaunchResult(result);
   }
 
-  function openEditor(next: WorkItemStatus) {
+  function openEditor(next: StartingStatus) {
     if (!canCreate) {
-      toast.show(projectAvailable ? "Projects are still loading." : "This project is unavailable. Rebind its items first.", { variant: "info" });
+      toast.show(projectCache.status === "ready" && projectId !== null ? "This project is unavailable. Rebind its items first." : "Projects are still loading.", { variant: "info" });
       return;
     }
     setEditor({ open: true, view: null, status: next });
+  }
+
+  /** "Create and execute": the new card has no claim or agents yet, so its view is built directly. */
+  function executeNewItem(item: WorkItem) {
+    setExecute({ view: { item, claim: undefined, attempts: [], links: [], aggregate: aggregateWorkItem({ claim: undefined, attempts: [], links: [] }) }, retryAnyway: false });
   }
 
   const renderCard = (view: WorkItemView, dragHandle?: ReactNode, showStatus = false) => (
@@ -458,6 +467,7 @@ function TodoReady(props: {
       view={view}
       now={now}
       showStatus={showStatus}
+      showProject={projectId === null}
       dragHandle={dragHandle}
       onOpen={(entry) => setDetailId(entry.item.id)}
       // An archived card has nothing to move; its menu is the detail with Restore and Purge.
@@ -473,8 +483,10 @@ function TodoReady(props: {
         <BoardToolbar
           styles={styles}
           theme={theme}
-          title={props.projectFilter ? props.title : (projectLabel ?? props.title)}
-          onPickProject={props.projectFilter || projectOptions.length < 2 ? null : () => setPickingProject(true)}
+          title={props.title}
+          projectLabel={projectLabel}
+          projectFiltered={projectId !== null}
+          onPickProject={props.projectFilter ? null : () => setPickingProject(true)}
           filter={filter}
           onFilter={setFilter}
           query={query}
@@ -489,13 +501,13 @@ function TodoReady(props: {
           </Notice>
         ) : null}
         {projectCache.status === "error" ? <Notice styles={styles} kind="warning">{projectCache.error ?? "Projects unavailable."}</Notice> : null}
-        {projectId && !projectAvailable ? (
+        {projectId && !isProjectAvailable(projectId) ? (
           <Notice styles={styles} kind="warning" title="Project unavailable">
             {`${TEXT.rebindNotice} Open a card and choose Rebind project.`}
           </Notice>
         ) : null}
-        {projectId === null ? (
-          <Text style={styles.muted}>{projectCache.status === "loading" ? "Loading projects…" : "Open a project in Paseo to start its board."}</Text>
+        {projectCache.status === "ready" && projectOptions.length === 1 ? (
+          <Text style={styles.muted}>Open a project in Paseo to start the board.</Text>
         ) : filter === "archived" ? (
           <View style={{ gap: styles.gap, maxWidth: BOARD_COLUMN_WIDTH * 2 }}>
             {board.archived.map((view) => renderCard(view, undefined, true))}
@@ -509,8 +521,8 @@ function TodoReady(props: {
             // Before the first layout pass, guess from the host layout instead of flashing tabs.
             width={width || (props.compact ? 0 : Number.MAX_SAFE_INTEGER)}
             renderCard={renderCard}
-            onCreate={openEditor}
-            onDrop={dropCard}
+            onAdd={addToColumn}
+            onDrop={(view, status) => requestMove(view, status)}
           />
         )}
         <Text style={styles.mono}>{TEXT.trustNotice}</Text>
@@ -521,14 +533,17 @@ function TodoReady(props: {
         open={editor.open}
         onOpenChange={(open) => setEditor((current) => ({ ...current, open }))}
         projects={projectCache.projects}
-        initialProjectId={projectAvailable ? projectId : ([...projectCache.projects.keys()][0] ?? null)}
+        // A filtered board creates in its project; the full board asks, unless only one project exists.
+        initialProjectId={projectId !== null && isProjectAvailable(projectId) ? projectId : projectCache.projects.size === 1 ? ([...projectCache.projects.keys()][0] ?? null) : null}
         initialStatus={editor.status}
         item={editor.view?.item ?? null}
-        onSubmit={async (input) => {
+        onSubmit={async ({ execute: andExecute, ...input }) => {
           if (editor.view) {
-            return actions.update(editor.view.item, { title: input.title, details: input.details, defaultPrompt: input.defaultPrompt });
+            return actions.update(editor.view.item, { title: input.title, details: input.details, defaultPrompt: input.defaultPrompt, priority: input.priority });
           }
-          return (await actions.create(input)) !== null;
+          const created = await actions.create(input);
+          if (created && andExecute) executeNewItem(created);
+          return created !== null;
         }}
       />
       <RebindModal
@@ -554,7 +569,7 @@ function TodoReady(props: {
               onMoveOnly: () => {
                 const current = execute;
                 setExecute(null);
-                void moveCard(current.view, "in_progress", current.moveOnSubmit === true ? undefined : current.moveOnSubmit);
+                void moveCard(current.view, "in_progress");
               },
             }
           : {})}
@@ -566,16 +581,15 @@ function TodoReady(props: {
         view={start ? (views.get(start.viewId) ?? null) : null}
         onClose={() => setStart(null)}
         onMoveOnly={(view) => {
-          const placement = start?.placement;
           setStart(null);
-          void moveCard(view, "in_progress", placement);
+          void moveCard(view, "in_progress");
         }}
         onOpenAgent={
           props.navigation
             ? (view, agentId) => {
                 const current = start;
                 setStart(null);
-                if (current?.move && view.item.status !== "in_progress") void moveCard(view, "in_progress", current.placement);
+                if (current?.move && view.item.status !== "in_progress") void moveCard(view, "in_progress");
                 props.navigation?.openAgent({ agentId });
               }
             : null
@@ -583,11 +597,11 @@ function TodoReady(props: {
         onExecuteInstead={(view) => {
           const current = start;
           setStart(null);
-          setExecute({ view, retryAnyway: false, ...(current?.move ? { moveOnSubmit: current.placement ?? true } : {}) });
+          setExecute({ view, retryAnyway: false, ...(current?.move ? { moveOnSubmit: true } : {}) });
         }}
         onSend={async ({ view, agentId, text, messageId }) => {
           if (start?.move && view.item.status !== "in_progress") {
-            const moved = await actions.move(view.item, "in_progress", start.placement);
+            const moved = await actions.move(view.item, "in_progress");
             if (!moved) return null;
           }
           const result = await sendFollowUp({ paseo, agentId, text, messageId });
@@ -606,19 +620,23 @@ function TodoReady(props: {
         open={pickingProject}
         onOpenChange={setPickingProject}
         options={projectOptions}
-        value={projectId}
+        value={projectId ?? ""}
         onChange={pickProject}
+      />
+      <CardPicker
+        styles={styles}
+        theme={theme}
+        request={pick}
+        showProject={projectId === null}
+        onClose={() => setPick(null)}
+        onConfirm={(target, picked) => void confirmPick(target, picked)}
       />
       <MoveMenu
         styles={styles}
         theme={theme}
         view={menuView}
         onClose={() => setMenuId(null)}
-        canMoveUp={menuIndex > 0}
-        canMoveDown={menuColumn !== undefined && menuIndex >= 0 && menuIndex < menuColumn.views.length - 1}
         onMove={(view, next) => requestMove(view, next)}
-        onMoveUp={(view) => shiftCard(view, -1)}
-        onMoveDown={(view) => shiftCard(view, 1)}
         onOpenDetails={(view) => {
           setMenuId(null);
           setDetailId(view.item.id);
@@ -631,7 +649,7 @@ function TodoReady(props: {
         onClose={() => setDetailId(null)}
         actions={detailActions}
         canLaunch={capability.available}
-        projectAvailable={projectAvailable}
+        projectAvailable={detailView ? isProjectAvailable(detailView.item.projectId) : true}
         now={now}
       />
       <ConfirmModal

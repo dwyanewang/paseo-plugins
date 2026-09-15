@@ -1,6 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Icon, Modal, TextInput } from "@getpaseo/plugin/client/react-native";
-import { Pressable, Text, View } from "react-native";
+import { Modal, TextInput } from "@getpaseo/plugin/client/react-native";
+import { Text, View } from "react-native";
 import { BOARD_FILTERS, type BoardFilter } from "../shared/board";
 import { Button, Chip, Select } from "./components";
 import type { TodoStyles } from "./styles";
@@ -16,7 +16,9 @@ export function BoardToolbar(props: {
   styles: TodoStyles;
   theme: PluginTheme;
   title: string;
-  /** Null in the workspace panel, whose project is fixed. */
+  /** Label of the current project filter; with `onPickProject` null (the workspace panel) it is fixed. */
+  projectLabel: string;
+  projectFiltered: boolean;
   onPickProject: (() => void) | null;
   filter: BoardFilter;
   onFilter: (filter: BoardFilter) => void;
@@ -30,24 +32,27 @@ export function BoardToolbar(props: {
   return (
     <View style={{ gap: styles.gap }}>
       <View style={[styles.header, { flexWrap: "wrap" }]}>
-        <Pressable
-          accessibilityRole={props.onPickProject ? "button" : "header"}
-          accessibilityLabel={props.onPickProject ? `${props.title}. Switch project` : props.title}
-          disabled={!props.onPickProject}
-          onPress={() => props.onPickProject?.()}
-          style={[styles.row, { flexShrink: 1 }]}
-        >
-          <Text style={[styles.headerTitle, { flexShrink: 1 }]} numberOfLines={1}>
-            {props.title}
-          </Text>
-          {props.onPickProject ? <Icon name="ChevronDown" size={18} color={theme.colors.foregroundMuted} /> : null}
-        </Pressable>
+        <Text accessibilityRole="header" style={[styles.headerTitle, { flexShrink: 1 }]} numberOfLines={1}>
+          {props.title}
+        </Text>
         <View style={styles.rowWrap}>
           <Button styles={styles} theme={theme} label="Reload" icon="RefreshCw" onPress={props.onReload} accessibilityHint="Re-reads Todo data from the daemon" />
           <Button styles={styles} theme={theme} label="New" icon="Plus" variant="primary" disabled={!props.canCreate} onPress={props.onCreate} />
         </View>
       </View>
       <View style={styles.rowWrap}>
+        {props.onPickProject ? (
+          <Chip
+            styles={styles}
+            theme={theme}
+            role="button"
+            label={`Project: ${props.projectLabel}`}
+            icon="Folder"
+            selected={props.projectFiltered}
+            accessibilityLabel={`Project filter: ${props.projectLabel}. Change`}
+            onPress={props.onPickProject}
+          />
+        ) : null}
         <View accessibilityRole="tablist" style={styles.rowWrap}>
           {BOARD_FILTERS.map((entry) => (
             <Chip
@@ -78,17 +83,18 @@ export function ProjectPicker(props: {
   theme: PluginTheme;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** The first option, value "", stands for every project. */
   options: readonly ProjectOption[];
-  value: string | null;
+  value: string;
   onChange: (projectId: string) => void;
 }) {
   return (
-    <Modal title="Project" open={props.open} onOpenChange={props.onOpenChange}>
+    <Modal title="Project filter" open={props.open} onOpenChange={props.onOpenChange}>
       <Modal.Content>
         <Select
           styles={props.styles}
           theme={props.theme}
-          label="Show the board of"
+          label="Show cards from"
           value={props.value}
           options={props.options}
           onChange={(projectId) => {

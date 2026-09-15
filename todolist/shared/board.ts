@@ -1,10 +1,11 @@
-import { compareRanks } from "./rank";
 import {
+  WORK_ITEM_PRIORITIES,
   WORK_ITEM_STATUSES,
   type AgentLink,
   type StatusReason,
   type TodoAgentDisplayState,
   type WorkItem,
+  type WorkItemPriority,
   type WorkItemStatus,
 } from "./schema";
 import type { WorkItemAggregate } from "./state";
@@ -25,6 +26,14 @@ export const STATUS_REASON_LABELS: Record<StatusReason, string> = {
   agent_active: "Moved when an agent started",
   agent_finished: "Moved when the agent finished",
   migration: "Placed by the board upgrade",
+};
+
+export const WORK_ITEM_PRIORITY_LABELS: Record<WorkItemPriority, string> = {
+  urgent: "Urgent",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+  none: "No priority",
 };
 
 export type BoardFilter = "active" | "all" | "backlog" | "cancelled" | "archived";
@@ -63,35 +72,57 @@ export function matchesSearch(item: WorkItem, query: string): boolean {
   return item.title.toLowerCase().includes(needle) || item.details.toLowerCase().includes(needle);
 }
 
-/** One project's cards split into the filter's columns, each in rank order. */
+/** Highest priority first; equal priorities keep creation order, so cards never jump around. */
+export function compareCards(left: WorkItem, right: WorkItem): number {
+  return (
+    WORK_ITEM_PRIORITIES.indexOf(left.priority) - WORK_ITEM_PRIORITIES.indexOf(right.priority) ||
+    left.number - right.number
+  );
+}
+
+/** Cards split into the filter's columns; `projectId: null` shows every project. */
 export function buildBoard<View extends { item: WorkItem }>(
   views: Iterable<View>,
-  input: { projectId: string; filter: BoardFilter; query: string },
+  input: { projectId: string | null; filter: BoardFilter; query: string },
 ): Board<View> {
   const statuses = input.filter === "archived" ? [] : FILTER_COLUMNS[input.filter];
   const columns = statuses.map((status) => ({ status, views: [] as View[] }));
   const archived: View[] = [];
   for (const view of views) {
     const { item } = view;
-    if (item.projectId !== input.projectId || !matchesSearch(item, input.query)) continue;
+    if ((input.projectId !== null && item.projectId !== input.projectId) || !matchesSearch(item, input.query)) continue;
     if (item.archivedAt) {
       if (input.filter === "archived") archived.push(view);
       continue;
     }
     columns.find((column) => column.status === item.status)?.views.push(view);
   }
-  for (const column of columns) column.views.sort((left, right) => compareRanks(left.item.rank, right.item.rank));
+  for (const column of columns) column.views.sort((left, right) => compareCards(left.item, right.item));
   archived.sort((left, right) => (right.item.archivedAt ?? "").localeCompare(left.item.archivedAt ?? ""));
   return { columns, archived };
 }
 
-/** Drop neighbours for moving `id` to index `to` of an ordered column (indexes exclude `id`). */
-export function neighboursAt(ids: readonly string[], id: string, to: number): { beforeId?: string; afterId?: string } {
-  const without = ids.filter((entry) => entry !== id);
-  const index = Math.max(0, Math.min(without.length, to));
-  const beforeId = index > 0 ? without[index - 1] : undefined;
-  const afterId = without[index];
-  return { ...(beforeId ? { beforeId } : {}), ...(afterId ? { afterId } : {}) };
+/**
+ * What a column's "+" does. Work starts in Backlog or To do; later columns only receive cards that
+ * already exist: In progress takes one card that has not started, Done accepts reviewed cards.
+ * In review and Cancelled have no "+": the agent fills the first, the move menu covers the second.
+ */
+export type ColumnAddAction =
+  | { kind: "create" }
+  | { kind: "pick"; sources: readonly WorkItemStatus[]; multiple: boolean };
+
+export function columnAddAction(status: WorkItemStatus): ColumnAddAction | null {
+  switch (status) {
+    case "backlog":
+    case "todo":
+      return { kind: "create" };
+    case "in_progress":
+      return { kind: "pick", sources: ["todo", "backlog"], multiple: false };
+    case "done":
+      return { kind: "pick", sources: ["in_review"], multiple: true };
+    default:
+      return null;
+  }
 }
 
 /** Narrow enough that the four active columns fit beside the host sidebar on a laptop screen. */
@@ -107,27 +138,17 @@ export interface Rect {
 export interface MeasuredColumn {
   status: WorkItemStatus;
   rect: Rect;
-  /** Cards in visual order, measured in the same coordinate space as `rect`. */
-  cards: { id: string; rect: Rect }[];
-}
-
-export interface DropTarget {
-  status: WorkItemStatus;
-  /** Slot among the column's cards with the dragged card left out. */
-  index: number;
 }
 
 /**
- * The column and slot under a pointer. Columns match by horizontal position, with a vertical margin
- * so dropping just below a short column still counts; the slot is the number of other cards whose
- * middle lies above the pointer.
+ * The column under a pointer, by horizontal position, with a vertical margin so dropping just
+ * below a short column still counts.
  */
-export function dropTargetAt(
+export function dropColumnAt(
   point: { x: number; y: number },
   columns: readonly MeasuredColumn[],
-  draggedId: string,
   margin = 24,
-): DropTarget | null {
+): WorkItemStatus | null {
   const column = columns.find(
     ({ rect }) =>
       point.x >= rect.x &&
@@ -135,20 +156,7 @@ export function dropTargetAt(
       point.y >= rect.y - margin &&
       point.y <= rect.y + rect.height + margin,
   );
-  if (!column) return null;
-  const index = column.cards.filter((card) => card.id !== draggedId && card.rect.y + card.rect.height / 2 < point.y).length;
-  return { status: column.status, index };
-}
-
-/** Neighbours for a drop, or null when the card would land exactly where it already is. */
-export function dropPlacement(
-  targetIds: readonly string[],
-  draggedId: string,
-  sameColumn: boolean,
-  index: number,
-): { beforeId?: string; afterId?: string } | null {
-  if (sameColumn && targetIds.indexOf(draggedId) === index) return null;
-  return neighboursAt(targetIds, draggedId, index);
+  return column?.status ?? null;
 }
 
 /**

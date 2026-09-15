@@ -64,7 +64,7 @@ export function buildWorkItemViews(todo: TodoDocument): Map<string, WorkItemView
       right.firstObservedAt.localeCompare(left.firstObservedAt),
     );
     const claim = todo.claims[item.id];
-    views.set(item.id, { item, claim, attempts, links, aggregate: aggregateWorkItem({ item, claim, attempts, links }) });
+    views.set(item.id, { item, claim, attempts, links, aggregate: aggregateWorkItem({ claim, attempts, links }) });
   }
   return views;
 }
@@ -82,7 +82,6 @@ export function describeTodoError(error: TodoError): string {
     case "stale_document":
       return "The Todo data was reset elsewhere. Reload to continue.";
     case "conflict":
-    case "order_conflict":
       return "This item changed on another client. Reload and try again.";
     case "capacity_exceeded":
       return error.message;

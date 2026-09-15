@@ -7,7 +7,6 @@ import type {
   moveWorkItem,
   purgeWorkItem,
   rebindWorkItemProject,
-  reorderWorkItem,
   reportLaunchProgress,
   setWorkItemArchived,
   updateWorkItem,
@@ -29,7 +28,6 @@ import {
   validateWorkItemFields,
   type FieldError,
 } from "../shared/limits";
-import { compareRanks, rankBetween, rebalancedRanks } from "../shared/rank";
 import type {
   AgentLink,
   Attempt,
@@ -62,26 +60,6 @@ function touched(item: WorkItem, now: string, patch: Partial<WorkItem>): WorkIte
   return { ...item, ...patch, version: item.version + 1, updatedAt: now };
 }
 
-function bumpOrder(
-  versions: TodoDocument["projectOrderVersions"],
-  ...projectIds: string[]
-): TodoDocument["projectOrderVersions"] {
-  const next = { ...versions };
-  for (const projectId of projectIds) next[projectId] = (next[projectId] ?? 0) + 1;
-  return next;
-}
-
-export function projectItems(document: TodoDocument, projectId: string): WorkItem[] {
-  return Object.values(document.workItems)
-    .filter((item) => item.projectId === projectId)
-    .sort((left, right) => compareRanks(left.rank, right.rank));
-}
-
-function lastRank(document: TodoDocument, projectId: string): string | undefined {
-  const items = projectItems(document, projectId);
-  return items.at(-1)?.rank;
-}
-
 export function attemptsForWorkItem(document: TodoDocument, workItemId: string): Attempt[] {
   return Object.values(document.attempts)
     .filter((attempt) => attempt.workItemId === workItemId)
@@ -94,7 +72,6 @@ export function linksForWorkItem(document: TodoDocument, workItemId: string): Ag
 
 function boardFacts(document: TodoDocument, item: WorkItem) {
   const aggregate = aggregateWorkItem({
-    item,
     claim: document.claims[item.id],
     attempts: attemptsForWorkItem(document, item.id),
     links: linksForWorkItem(document, item.id),
@@ -157,8 +134,6 @@ export function createWorkItemMutation(
   }
   const invalid = validateWorkItemFields(input);
   if (invalid) return fieldError(invalid);
-  const rank = rankBetween(lastRank(document, input.projectId), undefined);
-  if (!rank) return error("invalid_input", "Could not allocate a rank.");
   const status = input.status ?? "todo";
   const workItem: WorkItem = {
     id: input.id,
@@ -174,10 +149,9 @@ export function createWorkItemMutation(
     status,
     statusChangedAt: now,
     statusReason: "created",
-    rank,
+    priority: input.priority ?? "none",
     createdAt: now,
     updatedAt: now,
-    ...(status === "done" ? { completedAt: now } : {}),
   };
   return {
     status: "commit",
@@ -185,7 +159,6 @@ export function createWorkItemMutation(
       ...document,
       nextWorkItemNumber: document.nextWorkItemNumber + 1,
       workItems: { ...document.workItems, [workItem.id]: workItem },
-      projectOrderVersions: bumpOrder(document.projectOrderVersions, input.projectId),
     },
     result: { workItem, created: true },
   };
@@ -229,6 +202,9 @@ export function updateWorkItemMutation(
   if (input.patch.defaultPrompt !== undefined && input.patch.defaultPrompt !== item.defaultPrompt) {
     patch.defaultPrompt = input.patch.defaultPrompt;
   }
+  if (input.patch.priority !== undefined && input.patch.priority !== item.priority) {
+    patch.priority = input.patch.priority;
+  }
   if (Object.keys(patch).length === 0) return { status: "unchanged", result: { workItem: item } };
   const workItem = touched(item, now, patch);
   return {
@@ -236,75 +212,6 @@ export function updateWorkItemMutation(
     values: { ...document, workItems: { ...document.workItems, [workItem.id]: workItem } },
     result: { workItem },
   };
-}
-
-export function reorderWorkItemMutation(
-  document: TodoDocument,
-  input: Input<typeof reorderWorkItem>,
-  now: string,
-): MutationOutcome<{ workItem: WorkItem; projectOrderVersion: number }> {
-  const item = requireVersioned(document, input.id, input.expectedVersion);
-  if (isError(item)) return item;
-  const currentOrder = document.projectOrderVersions[item.projectId] ?? 0;
-  if (currentOrder !== input.expectedProjectOrderVersion) {
-    return error("order_conflict", "The project order changed elsewhere. Reload before reordering.", {
-      currentProjectOrderVersion: currentOrder,
-    });
-  }
-  const placement = placeInProject(document, item, input.beforeId, input.afterId);
-  if ("status" in placement) return placement;
-  const workItem = touched(item, now, { rank: placement.rank });
-  const workItems = { ...document.workItems, ...placement.rebalanced, [workItem.id]: workItem };
-  const projectOrderVersions = bumpOrder(document.projectOrderVersions, item.projectId);
-  return {
-    status: "commit",
-    values: { ...document, workItems, projectOrderVersions },
-    result: { workItem, projectOrderVersion: projectOrderVersions[item.projectId]! },
-  };
-}
-
-/**
- * Rank for `item` between two neighbours of its project. When the gap is exhausted the project is
- * rebalanced; `rebalanced` holds the other items whose rank changed, for the same update.
- */
-function placeInProject(
-  document: TodoDocument,
-  item: WorkItem,
-  beforeId: string | undefined,
-  afterId: string | undefined,
-): { rank: string; rebalanced: Record<string, WorkItem> } | MutationError {
-  const neighbour = (id: string | undefined): WorkItem | MutationError | undefined => {
-    if (id === undefined) return undefined;
-    const found = document.workItems[id];
-    if (!found || found.projectId !== item.projectId || found.id === item.id) {
-      return error("invalid_input", "Reorder neighbours must be other items of the same project.");
-    }
-    return found;
-  };
-  const before = neighbour(beforeId);
-  if (before && isError(before)) return before;
-  const after = neighbour(afterId);
-  if (after && isError(after)) return after;
-  if (before && after && compareRanks(before.rank, after.rank) >= 0) {
-    return error("invalid_input", "Reorder neighbours are not adjacent in that order.");
-  }
-  const rank = rankBetween(before?.rank, after?.rank);
-  if (rank) return { rank, rebalanced: {} };
-  // Gap exhausted: rebalance the project inside the same update.
-  const ordered = projectItems(document, item.projectId).filter((entry) => entry.id !== item.id);
-  const index = after
-    ? ordered.findIndex((entry) => entry.id === after.id)
-    : before
-      ? ordered.findIndex((entry) => entry.id === before.id) + 1
-      : 0;
-  ordered.splice(index < 0 ? ordered.length : index, 0, item);
-  const ranks = rebalancedRanks(ordered.map((entry) => entry.id));
-  const rebalanced: Record<string, WorkItem> = {};
-  for (const entry of ordered) {
-    const next = ranks.get(entry.id)!;
-    if (entry.id !== item.id && entry.rank !== next) rebalanced[entry.id] = { ...entry, rank: next };
-  }
-  return { rank: ranks.get(item.id)!, rebalanced };
 }
 
 export function rebindWorkItemProjectMutation(
@@ -315,22 +222,15 @@ export function rebindWorkItemProjectMutation(
   const item = requireVersioned(document, input.id, input.expectedVersion);
   if (isError(item)) return item;
   if (item.projectId === input.projectId) return { status: "unchanged", result: { workItem: item } };
-  const rank = rankBetween(lastRank(document, input.projectId), undefined);
-  if (!rank) return error("invalid_input", "Could not allocate a rank.");
   const workItem = touched(item, now, {
     projectId: input.projectId,
     projectNameSnapshot: input.projectNameSnapshot,
-    rank,
   });
   if (input.projectRootSnapshot) workItem.projectRootSnapshot = input.projectRootSnapshot;
   else delete workItem.projectRootSnapshot;
   return {
     status: "commit",
-    values: {
-      ...document,
-      workItems: { ...document.workItems, [workItem.id]: workItem },
-      projectOrderVersions: bumpOrder(document.projectOrderVersions, item.projectId, input.projectId),
-    },
+    values: { ...document, workItems: { ...document.workItems, [workItem.id]: workItem } },
     result: { workItem },
   };
 }
@@ -339,30 +239,16 @@ export function moveWorkItemMutation(
   document: TodoDocument,
   input: Input<typeof moveWorkItem>,
   now: string,
-): MutationOutcome<{ workItem: WorkItem; previousStatus: WorkItemStatus; placed: boolean }> {
+): MutationOutcome<{ workItem: WorkItem; previousStatus: WorkItemStatus }> {
   const item = document.workItems[input.id];
   if (!item) return error("not_found", "The work item no longer exists.");
   const previousStatus = item.status;
-  let workItem = item.status === input.status ? item : withStatus(item, input.status, "manual", now);
-  let workItems = document.workItems;
-  let projectOrderVersions = document.projectOrderVersions;
-  let placed = false;
-  const expectedOrder = input.placement?.expectedProjectOrderVersion;
-  if (input.placement && expectedOrder === (document.projectOrderVersions[item.projectId] ?? 0)) {
-    // Neighbours that moved or vanished since the drag started are not an error: the move stands.
-    const placement = placeInProject(document, item, input.placement.beforeId, input.placement.afterId);
-    if (!("status" in placement)) {
-      workItem = { ...workItem, rank: placement.rank };
-      workItems = { ...workItems, ...placement.rebalanced };
-      projectOrderVersions = bumpOrder(projectOrderVersions, item.projectId);
-      placed = true;
-    }
-  }
-  if (workItem === item) return { status: "unchanged", result: { workItem, previousStatus, placed } };
+  if (item.status === input.status) return { status: "unchanged", result: { workItem: item, previousStatus } };
+  const workItem = withStatus(item, input.status, "manual", now);
   return {
     status: "commit",
-    values: { ...document, workItems: { ...workItems, [workItem.id]: workItem }, projectOrderVersions },
-    result: { workItem, previousStatus, placed },
+    values: { ...document, workItems: { ...document.workItems, [workItem.id]: workItem } },
+    result: { workItem, previousStatus },
   };
 }
 
@@ -399,7 +285,7 @@ export function purgeWorkItemMutation(
   const claim = document.claims[item.id];
   const attempts = attemptsForWorkItem(document, item.id);
   const links = linksForWorkItem(document, item.id);
-  const aggregate = aggregateWorkItem({ item, claim, attempts, links });
+  const aggregate = aggregateWorkItem({ claim, attempts, links });
   if (aggregate.blockedReason === "claim_held") {
     return error("claim_held", "Abandon the pending launch before purging.");
   }
@@ -453,7 +339,6 @@ export function purgeWorkItemMutation(
       attempts: remainingAttempts,
       agentLinks: remainingLinks,
       retiredWorkItemIds,
-      projectOrderVersions: bumpOrder(document.projectOrderVersions, item.projectId),
     },
     result: {},
     kind: "recovery",
@@ -493,7 +378,6 @@ export function acquireLaunchMutation(
   const labelInvalid = validateInitiatorLabel(input.initiatorLabel);
   if (labelInvalid) return fieldError(labelInvalid);
   const aggregate = aggregateWorkItem({
-    item,
     claim,
     attempts: attemptsForWorkItem(document, item.id),
     links: linksForWorkItem(document, item.id),

@@ -17,9 +17,9 @@ branch, which adds the two generic core extensions this plugin needs:
 
 | Path | Owns |
 | --- | --- |
-| `shared/schema.ts` | Settings document (`todo-data`, version 2): work items with board status and number, claims, attempts, agent links, retired IDs. |
-| `shared/migrate.ts` | Version 1 → 2 migration: open items land in To do, In progress or In review by their agents; numbers follow creation order. |
-| `shared/board.ts` | Status labels and the automatic board moves (`deriveAutoMove`). Moves never bump the content `version`. |
+| `shared/schema.ts` | Settings document (`todo-data`, version 3): work items with board status, priority and number, claims, attempts, agent links, retired IDs. |
+| `shared/migrate.ts` | Stepwise migrations. 1 → 2: open items land in To do, In progress or In review by their agents, and numbers follow creation order. 2 → 3: manual ordering is dropped and every item gets an unset priority. |
+| `shared/board.ts` | Board rules: status and priority labels, card order, what each column's "+" does, and the automatic moves (`deriveAutoMove`). Moves never bump the content `version`. |
 | `shared/prefs.ts` | Second settings document (`todo-prefs`, version 1): launch mode, model, mode, thinking, and last-used workspace per project. Client-written; no business data. |
 | `shared/contracts.ts` | Typed RPCs. Every mutation carries `expectedIncarnationId`; errors are stable codes. |
 | `shared/attempt.ts`, `shared/state.ts` | Field-level lattice joins for attempt facts; canonical state mirror and aggregation. |
@@ -28,7 +28,7 @@ branch, which adds the two generic core extensions this plugin needs:
 | `server/mutations.ts`, `server/apply.ts` | Pure mutations; snapshot apply with correlation discovery ahead of the projection gate. |
 | `server/reconcile.ts` | Bootstrap scan (single subscribe), live upserts/removes, targeted refresh, periodic scan ∪ known-ID refresh, in-process watermarks and dirty reruns, bounded timeline search. |
 | `client/run.ts` | Direct run: acquire, request-start milestones, `workspace.agents.create`, agent-observation. Same attempt records the composer path writes. |
-| `client/board*.tsx`, `client/card-detail.tsx`, `client/move-menu.tsx` | Board view: project picker, filters and search, columns (side by side, scrolling, or status tabs by width), cards, pointer drag on wide layouts, the move menu, and the card detail. |
+| `client/board*.tsx`, `client/card-detail.tsx`, `client/move-menu.tsx`, `client/card-picker.tsx` | Board view: project filter, status filters and search, columns (side by side, scrolling, or status tabs by width), cards, pointer drag between columns on wide layouts, the move menu, the card picker behind a column's "+", and the card detail. |
 | `client/continue-modal.tsx`, `client/follow-up.ts` | Moving into In progress: the follow-up and approval dialog, and the stable-message-ID send. |
 | `client/` | React Native surface, sidebar item, workspace panel, settings screen, launch flows, recovery screen. |
 
@@ -57,9 +57,20 @@ branch, which adds the two generic core extensions this plugin needs:
   changes the underlying fact: the first request-start of a launch and an agent becoming active pull
   the card into In progress, and the last active agent finishing moves it to In review. Done and
   Cancelled only ever change by hand, and Execute is not offered there.
-- On wide boards, drag a card by its grip to reorder it or move it to another column; the row
-  scrolls when you hold the card near its edge. Phones and narrow panels use the move menu, which is
-  also the keyboard and screen-reader way to move a card.
+- The global board shows every project, and a project filter narrows it to one; the choice is
+  remembered. The workspace panel always shows its own project.
+- Each item has a priority: Urgent, High, Medium, Low, or unset. Cards sort by priority, then by
+  number, so a card only moves within its column when its priority changes. There is no manual
+  ordering.
+- Work starts in Backlog or To do. New, and those columns' "+", create a card; "Create and
+  execute" opens the execute dialog for it right away. The later columns only receive existing
+  cards:
+  - In progress's "+" picks one card from To do or Backlog;
+  - Done's "+" picks any number of cards from In review;
+  - In review and Cancelled have no "+".
+- On wide boards, drag a card by its grip to another column; the row scrolls when you hold the card
+  near its edge. Phones and narrow panels use the move menu, which is also the keyboard and
+  screen-reader way to move a card.
 - Moving a card into In progress by hand, by menu or by drag, gets an agent working once you confirm:
   - a finished, failed or closed agent can take a follow-up message;
   - an agent waiting for permission opens on its page;
@@ -68,8 +79,9 @@ branch, which adds the two generic core extensions this plugin needs:
   Each dialog also offers Move only. The card only moves without asking while an agent already runs
   or a launch is in flight: a follow-up would interrupt the running turn. A follow-up keeps one
   message ID per dialog, so a retry is never delivered twice, and Todo never resends on its own.
-- Upgrading from `todo-data` version 1 migrates the document once. An older plugin build cannot read
-  version 2, so back up `~/.paseo/plugin-settings/todo/todo-data.json` before deploying.
+- Upgrading from an older `todo-data` version migrates the document once. An older plugin build
+  cannot read a newer version, so back up `~/.paseo/plugin-settings/todo/todo-data.json` before
+  deploying.
 - An attempt stays actionable for its whole life: abandon is keyed to the attempt's own claim
   generation, not to whoever holds the claim now, and a finished attempt can be removed from the
   history with `todo.launch.forget` (Todo records only; the agent and workspace are untouched).

@@ -46,7 +46,6 @@ export interface TodoStyles {
   chipSelectedText: TextStyle;
   search: TextStyle;
   dragHandle: ViewStyle;
-  dropIndicator: ViewStyle;
   columnDropTarget: ViewStyle;
   detail: ViewStyle;
   gap: number;
@@ -169,7 +168,6 @@ export function useTodoStyles(theme: PluginTheme, compact: boolean): TodoStyles 
       chipSelectedText: { color: colors.accentForeground, fontSize: 13, fontWeight: "600" },
       search: { flexGrow: 1, flexBasis: 180 },
       dragHandle: { paddingVertical: 2, paddingRight: 2, alignSelf: "flex-start" },
-      dropIndicator: { height: 3, borderRadius: 2, backgroundColor: colors.accent },
       columnDropTarget: { borderColor: colors.accent },
       detail: { gap: 6, paddingTop: 6 },
     };

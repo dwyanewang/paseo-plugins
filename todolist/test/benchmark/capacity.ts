@@ -10,7 +10,6 @@ import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CAPACITY, measureDocumentBytes } from "../../shared/limits";
-import { rankFromInteger } from "../../shared/rank";
 import type { AgentLink, Attempt, LaunchClaim, TodoDocument, WorkItem } from "../../shared/schema";
 import { TODO_SETTINGS_VERSION, emptyTodoDocument } from "../../shared/schema";
 
@@ -38,7 +37,7 @@ function item(index: number, detailsBytes: number, promptBytes: number): WorkIte
     status: index % 4 === 0 ? "done" : "in_review",
     statusChangedAt: NOW,
     statusReason: "agent_finished",
-    rank: rankFromInteger((index + 1) * 1_000_000),
+    priority: index % 3 === 0 ? "high" : "none",
     createdAt: NOW,
     updatedAt: NOW,
     ...(index % 4 === 0 ? { completedAt: NOW } : {}),
@@ -121,7 +120,6 @@ function build(scenario: Scenario): TodoDocument {
   for (let index = 0; index < scenario.items; index += 1) {
     const workItem = item(index, scenario.detailsBytes, scenario.promptBytes);
     doc.workItems[workItem.id] = workItem;
-    doc.projectOrderVersions[workItem.projectId] = 10;
     let last: Attempt | null = null;
     for (let count = 0; count < scenario.attemptsPerItem; count += 1) {
       const entry = attempt(workItem.id, attemptIndex, scenario.promptBytes);

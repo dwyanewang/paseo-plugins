@@ -3,11 +3,11 @@ import { Modal } from "@getpaseo/plugin/client/react-native";
 import { Text, View } from "react-native";
 import { isAttemptNotSubmitted, isAttemptOutcomeUnknown, isAttemptSettled, stageCertainty } from "../shared/attempt";
 import { STATUS_REASON_LABELS, formatRelativeTime, resolveInProgressIntent } from "../shared/board";
-import type { AgentLink, Attempt, WorkItemStatus } from "../shared/schema";
+import type { AgentLink, Attempt, WorkItemPriority, WorkItemStatus } from "../shared/schema";
 import { Badge, Button } from "./components";
 import type { WorkItemView } from "./data";
 import { getKnownClientInstanceId } from "./launch";
-import { StatusPicker } from "./move-menu";
+import { PriorityPicker, StatusPicker } from "./move-menu";
 import type { TodoStyles } from "./styles";
 import { AGGREGATE_PRESENTATION, DISPLAY_STATE_PRESENTATION, TEXT } from "./text";
 
@@ -22,6 +22,7 @@ export interface CardActions {
   /** Moving into In progress may open a dialog instead of moving at once; see `requestMove`. */
   move: (view: WorkItemView, status: WorkItemStatus) => void;
   continueAgent: (view: WorkItemView) => void;
+  setPriority: (view: WorkItemView, priority: WorkItemPriority) => void;
   setArchived: (view: WorkItemView, archived: boolean) => void;
   purge: (view: WorkItemView) => void;
   rebind: (view: WorkItemView) => void;
@@ -188,6 +189,7 @@ function DetailBody(props: {
   return (
     <>
       <StatusPicker styles={styles} theme={theme} value={item.status} onChange={(status) => actions.move(view, status)} />
+      {!archived ? <PriorityPicker styles={styles} theme={theme} value={item.priority} onChange={(priority) => actions.setPriority(view, priority)} /> : null}
       <View style={styles.rowWrap}>
         <Badge styles={styles} theme={theme} label={presentation.label} icon={presentation.icon} tone={presentation.tone} />
         <Text style={styles.mono}>

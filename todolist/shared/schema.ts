@@ -8,7 +8,7 @@ import { migrateTodoDocument } from "./migrate";
  * memory by the server.
  */
 export const TODO_SETTINGS_ID = "todo-data";
-export const TODO_SETTINGS_VERSION = 2;
+export const TODO_SETTINGS_VERSION = 3;
 
 /** Board columns, in display order. */
 export const WORK_ITEM_STATUSES = ["backlog", "todo", "in_progress", "in_review", "done", "cancelled"] as const;
@@ -26,10 +26,15 @@ export const StatusReasonSchema = z.enum([
 ]);
 export type StatusReason = z.infer<typeof StatusReasonSchema>;
 
+/** Highest first; cards sort by priority, then by number. */
+export const WORK_ITEM_PRIORITIES = ["urgent", "high", "medium", "low", "none"] as const;
+export const WorkItemPrioritySchema = z.enum(WORK_ITEM_PRIORITIES);
+export type WorkItemPriority = z.infer<typeof WorkItemPrioritySchema>;
+
 export const WorkItemSchema = z.object({
   id: z.string().min(1),
   creationFingerprint: z.string().min(1),
-  /** Content version for edits. Status and position moves deliberately do not bump it. */
+  /** Content version for edits. Status moves deliberately do not bump it. */
   version: z.number().int().positive(),
   /** Host-wide display number (`#12`); never reused and kept across project rebinds. */
   number: z.number().int().positive(),
@@ -42,7 +47,7 @@ export const WorkItemSchema = z.object({
   status: WorkItemStatusSchema,
   statusChangedAt: z.string(),
   statusReason: StatusReasonSchema,
-  rank: z.string().min(1),
+  priority: WorkItemPrioritySchema,
   createdAt: z.string(),
   updatedAt: z.string(),
   completedAt: z.string().optional(),
@@ -162,7 +167,6 @@ export const TodoDocumentSchema = z.object({
   incarnationId: z.string().default(""),
   seq: z.number().int().nonnegative().default(0),
   nextWorkItemNumber: z.number().int().positive().default(1),
-  projectOrderVersions: z.record(z.string(), z.number().int().nonnegative()).default({}),
   workItems: z.record(z.string(), WorkItemSchema).default({}),
   claims: z.record(z.string(), LaunchClaimSchema).default({}),
   attempts: z.record(z.string(), AttemptSchema).default({}),

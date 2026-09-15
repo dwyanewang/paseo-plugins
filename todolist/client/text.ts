@@ -1,4 +1,4 @@
-import type { TodoAgentDisplayState, WorkItemStatus } from "../shared/schema";
+import type { TodoAgentDisplayState, WorkItemPriority, WorkItemStatus } from "../shared/schema";
 import type { WorkItemAggregateState } from "../shared/state";
 
 type StatusColor = "foregroundMuted" | "statusWarning" | "statusDanger" | "statusSuccess" | "accent";
@@ -11,6 +11,14 @@ export const STATUS_PRESENTATION: Record<WorkItemStatus, { icon: string; color: 
   in_review: { icon: "Eye", color: "accent" },
   done: { icon: "CircleCheck", color: "statusSuccess" },
   cancelled: { icon: "CircleX", color: "statusDanger" },
+};
+
+export const PRIORITY_PRESENTATION: Record<WorkItemPriority, { icon: string; color: StatusColor }> = {
+  urgent: { icon: "Flame", color: "statusDanger" },
+  high: { icon: "ChevronsUp", color: "statusWarning" },
+  medium: { icon: "ChevronUp", color: "accent" },
+  low: { icon: "ChevronDown", color: "foregroundMuted" },
+  none: { icon: "Minus", color: "foregroundMuted" },
 };
 
 export const DISPLAY_STATE_COLOR: Record<TodoAgentDisplayState, StatusColor> = {

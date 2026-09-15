@@ -78,7 +78,7 @@ export function Chip(props: {
   onPress: () => void;
   icon?: string;
   iconColor?: string;
-  role?: "tab" | "radio";
+  role?: "tab" | "radio" | "button";
   accessibilityLabel?: string;
 }) {
   const { styles, selected } = props;
@@ -88,7 +88,7 @@ export function Chip(props: {
       accessibilityRole={role}
       accessibilityState={{ selected, checked: selected }}
       // React Native Web only forwards selection to the accessibility tree through ARIA props.
-      {...(role === "tab" ? { "aria-selected": selected } : { "aria-checked": selected })}
+      {...(role === "tab" ? { "aria-selected": selected } : role === "radio" ? { "aria-checked": selected } : {})}
       accessibilityLabel={props.accessibilityLabel ?? props.label}
       onPress={props.onPress}
       style={[styles.chip, selected ? styles.chipSelected : null]}

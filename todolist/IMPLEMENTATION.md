@@ -218,6 +218,45 @@ Normative source: `/home/yangfei/Private/Dw-Plans/paseo-todo-kanban-plan.md`. Bu
       Afterwards `todo-data.json` should report version 2.
 - [ ] Smoke flows on Electron, Android and iOS (see Phase E).
 
+## Phase I — all projects, priority, column actions (2026-09-15)
+
+Decided after the first live use of the board. Plan addendum: "第二轮调整" in
+`/home/yangfei/Private/Dw-Plans/paseo-todo-kanban-plan.md`.
+
+- [x] The global board shows every project by default. A "Project" chip filters it to one project
+      (options show open counts), the choice is saved as `boardProjectId` (`""` = all projects),
+      and cards name their project on their own line. The workspace panel stays fixed.
+- [x] Manual ordering is gone:
+  - `todo.work-items.reorder`, move placement, `rank` and `projectOrderVersions` are removed;
+  - Move up/down and in-column drag are removed;
+  - drag between columns stays.
+- [x] Priority (urgent, high, medium, low, none):
+  - set in the editor and from chips in the card detail, as a versioned edit;
+  - cards sort by priority, then number, and show a badge.
+- [x] `todo-data` version 3:
+  - the stepwise migration 2 → 3 drops `rank` and `projectOrderVersions` and adds `priority: "none"`;
+  - version 1 documents pass through both steps.
+- [x] Column "+": create in Backlog and To do; In progress picks one card from To do or Backlog, which
+      opens the execute or continue dialog; Done picks several cards from In review; In review and
+      Cancelled have none. Create is limited to Backlog and To do, and the editor offers "Create
+      and execute".
+- [x] `aggregateWorkItem` no longer takes the unused `item` argument.
+
+Tests: 115 unit tests (board, migration 1→3 and 2→3, mutations, state) and the E2E.
+
+Benchmark re-run: a work item is 1588 bytes (was 1592) and the tiers are unchanged.
+
+Verified in the web app against a fake-provider test daemon with two projects:
+- the all-projects board, the project filter with counts, priority badges and order;
+- no "+" on In review;
+- the In progress picker (single select, then the execute dialog with Move only);
+- the Done picker (Mark 2 done);
+- the editor with column and priority chips, Create and execute;
+- a priority change re-sorting its column;
+- drag from To do to Done.
+
+That pass moved the project name to its own card line and fixed the column header height.
+
 ## Acceptance bus
 
 - [x] 1. Core has no Todo naming or second storage system
