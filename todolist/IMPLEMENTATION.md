@@ -320,9 +320,14 @@ Requested after using the Phase I board. Plan addendum: "第三轮调整" in
     handles Escape first, so a React Native Web modal outside that dialog fought it for focus, and
     Escape closed the whole dialog.
   - Failures after a request-start go through one path in `client/run.ts`:
-    - a failed start report releases the claim only when the daemon accepts "not submitted";
-      otherwise the outcome is recorded as unknown;
-    - a created worktree keeps its identity when observing it fails.
+    - the workspace observation is written together with the agent request start, so the daemon
+      refusing "not submitted" means a start may have landed. A separate earlier observation made
+      the claim unreleasable before anything was sent;
+    - a failed start write releases the claim when the daemon accepts "not submitted"; otherwise
+      the outcome is recorded as unknown;
+    - an unknown outcome is recorded for both stages at once, with the workspace when known.
+      Stages that never started or are already known ignore it, so every stopped launch reads as
+      "outcome unknown" (abandon, retry) or is released, never as a pending launch.
   - Resume launch needs a composer journal, or an attempt that never sent anything
     (`canResumeAttempt`). A direct run's attempt can no longer be replayed through the composer.
   - Phones stay on the tabs layout when a filter leaves one column, so New creates in Backlog under
@@ -331,7 +336,8 @@ Requested after using the Phase I board. Plan addendum: "第三轮调整" in
   - Each phone tab gets its own list, so a tab never opens at the previous column's scroll offset.
   - The unused `ModelOption.label` and `header` style are removed.
   - Tests: launch writes backed by the real mutations that fail before they land or lose their
-    reply (three of the four fail on the previous `run.ts`), resume gating, and the one-column layout.
+    reply, asserting the card's aggregate state. The gaps a second review found fail on the
+    first fix. Also resume gating and the one-column layout.
 
 Tests: 123 unit tests (worktree run order and failure, branch naming, theme tone) and two E2E tests.
 The new E2E test cuts a real worktree and links the agent to it.

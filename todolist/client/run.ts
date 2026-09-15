@@ -126,18 +126,19 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
   };
   /**
    * A request may have reached the host, or its start was recorded even though the reply was lost.
-   * Nothing is retried: the outcome is recorded as unknown, with the workspace when one is known, so
-   * the card offers abandon instead of resuming the same attempt. The record itself is best effort.
+   * Nothing is retried. The failure is recorded as unknown for both stages, with the workspace when
+   * one is known: a stage that never started, or whose result is already known, ignores the flag,
+   * so the attempt reads as unknown exactly where a request may be pending, and the card offers
+   * abandon or retry instead of resuming the same attempt. The record itself is best effort.
    */
-  const outcomeUnknown = async (
-    stage: "workspace" | "agent",
-    failure: { error: unknown; fallback: string; code: string; workspaceId?: string },
-  ): Promise<RunResult> => {
+  const outcomeUnknown = async (failure: { error: unknown; fallback: string; code: string; workspaceId?: string }): Promise<RunResult> => {
     const message = describe(failure.error, failure.fallback);
     const now = new Date().toISOString();
     try {
-      await report(stage === "workspace" ? "workspace-request" : "agent-request", {
-        ...(stage === "workspace" ? { workspaceOutcomeUnknownObservedAt: now } : { agentOutcomeUnknownObservedAt: now }),
+      // Filed under the stage the run reached: the workspace until one is known, then the agent.
+      await report(failure.workspaceId ? "agent-request" : "workspace-request", {
+        workspaceOutcomeUnknownObservedAt: now,
+        agentOutcomeUnknownObservedAt: now,
         ...(failure.workspaceId ? { workspaceIdHint: failure.workspaceId } : {}),
         lastLaunchErrorCode: failure.code,
         lastLaunchErrorMessage: message,
@@ -148,18 +149,16 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
     return { status: "error", message, certainty: "outcome_unknown" };
   };
   /**
-   * Recording a request-start failed, yet the write may have landed before the reply was lost.
-   * The claim is released only when the daemon agrees nothing was recorded; otherwise the start
-   * stands and the outcome is unknown.
+   * Recording a request-start failed, yet the write may have landed before the reply was lost. Each
+   * start is the attempt's first recorded milestone after the claim, or follows one that already
+   * made it unreleasable, so the daemon refusing "not submitted" means a start may stand: the
+   * outcome is then unknown. Otherwise the claim is released.
    */
-  const releaseOrUnknown = async (
-    stage: "workspace" | "agent",
-    failure: { error: unknown; fallback: string; code: string; workspaceId?: string },
-  ): Promise<RunResult> => {
+  const releaseOrUnknown = async (failure: { error: unknown; fallback: string; code: string; workspaceId?: string }): Promise<RunResult> => {
     if (await abandonNotSubmitted()) {
       return { status: "error", message: describe(failure.error, failure.fallback), certainty: "not_submitted" };
     }
-    return outcomeUnknown(stage, failure);
+    return outcomeUnknown(failure);
   };
 
   let workspace: PaseoWorkspaceHandle;
@@ -176,23 +175,13 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
       await abandonNotSubmitted();
       return { status: "error", message: describe(error, "The workspace is unavailable."), certainty: "not_submitted" };
     }
-    try {
-      // The workspace already exists, so its stage is known before anything is submitted.
-      await report("workspace-observation", {
-        workspaceIdHint: workspaceId,
-        workspaceObservedAt: new Date().toISOString(),
-      });
-    } catch (error) {
-      await abandonNotSubmitted();
-      return { status: "error", message: describe(error, "Could not record the launch."), certainty: "not_submitted" };
-    }
   } else {
     // The worktree is a request of its own: record its start first, and treat any failure after
     // that as unknown, since the daemon may have created the worktree before the reply was lost.
     try {
       await report("workspace-request", { workspaceRequestStartedAt: new Date().toISOString() });
     } catch (error) {
-      return releaseOrUnknown("workspace", { error, fallback: "Could not record the launch.", code: "workspace_request_unrecorded" });
+      return releaseOrUnknown({ error, fallback: "Could not record the launch.", code: "workspace_request_unrecorded" });
     }
     try {
       workspace = await input.paseo.workspaces.create({
@@ -208,33 +197,19 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
       });
       workspaceId = workspace.id;
     } catch (error) {
-      return outcomeUnknown("workspace", {
-        error,
-        fallback: "The worktree request failed with an unknown outcome.",
-        code: "workspace_create_outcome_unknown",
-      });
-    }
-    try {
-      await report("workspace-observation", { workspaceIdHint: workspaceId, workspaceObservedAt: new Date().toISOString() });
-    } catch (error) {
-      // The worktree exists but no agent was requested. Keep its identity so the card can open it.
-      return outcomeUnknown("workspace", {
-        error,
-        fallback: "Could not record the new worktree.",
-        code: "workspace_observation_unrecorded",
-        workspaceId,
-      });
+      return outcomeUnknown({ error, fallback: "The worktree request failed with an unknown outcome.", code: "workspace_create_outcome_unknown" });
     }
   }
 
   try {
-    await report("agent-request", {
-      agentRequestStartedAt: new Date().toISOString(),
-      workspaceIdHint: workspaceId,
-    });
+    // One write for the workspace and the agent request. A separate workspace observation would
+    // make the attempt unreleasable before anything was sent, so a lost reply here could not be
+    // told apart from a recorded start.
+    const now = new Date().toISOString();
+    await report("agent-request", { workspaceIdHint: workspaceId, workspaceObservedAt: now, agentRequestStartedAt: now });
   } catch (error) {
-    // Nothing was sent to the host yet, but the start may have been recorded.
-    return releaseOrUnknown("agent", { error, fallback: "Could not record the launch.", code: "agent_request_unrecorded", workspaceId });
+    // Nothing was sent to the host for the agent, but the start may have been recorded.
+    return releaseOrUnknown({ error, fallback: "Could not record the launch.", code: "agent_request_unrecorded", workspaceId });
   }
 
   let agentId: string;
@@ -252,12 +227,7 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
     });
     agentId = agent.id;
   } catch (error) {
-    return outcomeUnknown("agent", {
-      error,
-      fallback: "The agent request failed with an unknown outcome.",
-      code: "agent_create_outcome_unknown",
-      workspaceId,
-    });
+    return outcomeUnknown({ error, fallback: "The agent request failed with an unknown outcome.", code: "agent_create_outcome_unknown", workspaceId });
   }
 
   try {

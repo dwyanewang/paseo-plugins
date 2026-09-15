@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { runWorkItemNow, type RunInput } from "../client/run";
 import { abandonLaunchMutation, acquireLaunchMutation, reportLaunchProgressMutation } from "../server/mutations";
-import { isAttemptOutcomeUnknown } from "../shared/attempt";
+import { aggregateWorkItem } from "../shared/state";
 import type { TodoDocument } from "../shared/schema";
 import { NOW, baseDocument, withClaim, withWorkItem } from "./helpers/setup";
 
@@ -65,7 +65,8 @@ describe("direct execution", () => {
       firstAgentContext: { prompt: "Do the work" },
     });
     const facets = progress.mock.calls.map(([call]) => call.facet);
-    expect(facets.slice(0, 3)).toEqual(["workspace-request", "workspace-observation", "agent-request"]);
+    expect(facets.slice(0, 2)).toEqual(["workspace-request", "agent-request"]);
+    expect(progress.mock.calls[1]![0].facts).toMatchObject({ workspaceIdHint: "wks-new", workspaceObservedAt: expect.any(String), agentRequestStartedAt: expect.any(String) });
     expect(progress.mock.invocationCallOrder[0]).toBeLessThan(createWorkspace.mock.invocationCallOrder[0]!);
     expect(create).toHaveBeenCalledOnce();
   });
@@ -136,6 +137,10 @@ function persistentLaunch() {
 }
 
 describe("direct execution when a launch write loses its reply", () => {
+  /** What the card shows: an unknown outcome offers abandon and retry, a pending launch does not. */
+  const cardState = (launch: ReturnType<typeof persistentLaunch>) =>
+    aggregateWorkItem({ claim: launch.claim(), attempts: [launch.attempt()], links: [] }).state;
+
   it("keeps an unknown outcome when the worktree request start landed but its reply was lost", async () => {
     const launch = persistentLaunch();
     launch.fail("progress:workspace-request", "after");
@@ -143,7 +148,7 @@ describe("direct execution when a launch write loses its reply", () => {
     expect(launch.createWorkspace).not.toHaveBeenCalled();
     // The daemon refused to call it "not submitted", so the claim stays and the outcome is unknown.
     expect(launch.claim()?.state).toBe("pending");
-    expect(isAttemptOutcomeUnknown(launch.attempt())).toBe(true);
+    expect(cardState(launch)).toBe("outcome_unknown");
     expect(launch.attempt().lastLaunchErrorCode).toBe("workspace_request_unrecorded");
   });
 
@@ -155,13 +160,24 @@ describe("direct execution when a launch write loses its reply", () => {
     expect(launch.createWorkspace).not.toHaveBeenCalled();
   });
 
-  it("records the new worktree and an unknown outcome when observing it fails", async () => {
+  for (const when of ["before", "after"] as const) {
+    it(`reads as unknown and keeps the new worktree when the agent request write fails ${when} landing`, async () => {
+      const launch = persistentLaunch();
+      launch.fail("progress:agent-request", when);
+      await expect(runWorkItemNow(launch.input)).resolves.toMatchObject({ status: "error", certainty: "outcome_unknown" });
+      expect(launch.create).not.toHaveBeenCalled();
+      expect(launch.attempt().workspaceIdHint).toBe("wks-new");
+      expect(cardState(launch)).toBe("outcome_unknown");
+    });
+  }
+
+  it("releases the claim when an existing workspace's agent request never landed", async () => {
     const launch = persistentLaunch();
-    launch.fail("progress:workspace-observation", "before");
-    await expect(runWorkItemNow(launch.input)).resolves.toMatchObject({ status: "error", certainty: "outcome_unknown" });
+    launch.input.target = { kind: "existing", workspaceId: "selected-workspace" };
+    launch.fail("progress:agent-request", "before");
+    await expect(runWorkItemNow(launch.input)).resolves.toMatchObject({ status: "error", certainty: "not_submitted" });
     expect(launch.create).not.toHaveBeenCalled();
-    expect(launch.attempt()).toMatchObject({ workspaceIdHint: "wks-new", lastLaunchErrorCode: "workspace_observation_unrecorded" });
-    expect(isAttemptOutcomeUnknown(launch.attempt())).toBe(true);
+    expect(launch.claim()?.state).toBe("abandoned");
   });
 
   it("never sends the agent request after its start landed without a reply", async () => {
@@ -171,7 +187,14 @@ describe("direct execution when a launch write loses its reply", () => {
     await expect(runWorkItemNow(launch.input)).resolves.toMatchObject({ status: "error", certainty: "outcome_unknown" });
     expect(launch.create).not.toHaveBeenCalled();
     expect(launch.claim()?.state).toBe("pending");
-    expect(isAttemptOutcomeUnknown(launch.attempt())).toBe(true);
+    expect(cardState(launch)).toBe("outcome_unknown");
     expect(launch.attempt().workspaceIdHint).toBe("selected-workspace");
+  });
+
+  it("reads as unknown when the agent request itself fails", async () => {
+    const launch = persistentLaunch();
+    launch.create.mockRejectedValue(new Error("socket closed"));
+    await expect(runWorkItemNow(launch.input)).resolves.toMatchObject({ status: "error", certainty: "outcome_unknown" });
+    expect(cardState(launch)).toBe("outcome_unknown");
   });
 });
