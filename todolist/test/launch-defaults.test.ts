@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NEW_WORKSPACE, resolveChoice, resolveWorkspaceTarget } from "../client/launch-defaults";
+import { NEW_WORKSPACE, NEW_WORKTREE, resolveChoice, resolveWorkspaceTarget, worktreeNameFor } from "../client/launch-defaults";
 import { TodoPrefsSchema } from "../shared/prefs";
 
 describe("launch preferences", () => {
@@ -64,5 +64,20 @@ describe("thinking selection", () => {
   it("drops unsupported thinking levels on model switches", () => {
     expect(resolveChoice(options, "xhigh", "medium", "high")).toBe("high");
     expect(resolveChoice([], "high", "high", undefined)).toBe("");
+  });
+});
+
+describe("new worktrees", () => {
+  it("offers a remembered new worktree only for projects that can create one", () => {
+    const input = { mode: "run" as const, selected: null, saved: NEW_WORKTREE, contextual: null, workspaces: [{ value: "main" }] };
+    expect(resolveWorkspaceTarget({ ...input, canCreateWorktree: true })).toBe(NEW_WORKTREE);
+    expect(resolveWorkspaceTarget({ ...input, canCreateWorktree: false })).toBe("main");
+    expect(resolveWorkspaceTarget({ ...input, saved: undefined, workspaces: [], canCreateWorktree: true })).toBe(NEW_WORKTREE);
+  });
+
+  it("names the branch after the card number and title, with a suffix against collisions", () => {
+    expect(worktreeNameFor({ number: 12, title: "Fix login redirect loop" }, "k3x9")).toBe("todo-12-fix-login-redirect-loop-k3x9");
+    expect(worktreeNameFor({ number: 3, title: "修复登录跳转" }, "k3x9")).toBe("todo-3-k3x9");
+    expect(worktreeNameFor({ number: 4, title: "A very long title that keeps going well past the limit" }, "ab12")).toBe("todo-4-a-very-long-title-that-keeps-goi-ab12");
   });
 });

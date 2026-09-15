@@ -8,6 +8,7 @@ import type { Attempt, WorkItem } from "../shared/schema";
 import type { LaunchRpcs } from "./launch";
 
 type PaseoApi = ReturnType<typeof usePaseo>;
+type PaseoWorkspaceHandle = ReturnType<PaseoApi["workspaces"]["ref"]>;
 type ProgressInput = z.input<typeof reportLaunchProgress.input>;
 
 export interface RunAgentConfig {
@@ -17,6 +18,17 @@ export interface RunAgentConfig {
   thinkingOptionId?: string;
 }
 
+/** Where a direct run happens: an existing workspace, or a worktree created for this run. */
+export type RunTarget =
+  | { kind: "existing"; workspaceId: string }
+  | {
+      kind: "new_worktree";
+      branchName: string;
+      /** Empty means the project's default branch. */
+      baseBranch?: string;
+      projectRootPath?: string;
+    };
+
 export interface RunInput {
   paseo: PaseoApi;
   item: WorkItem;
@@ -24,14 +36,14 @@ export interface RunInput {
   seedPrompt: string;
   seedPromptSource: "work-item-default" | "launch-edited";
   initiatorLabel: string;
-  workspaceId: string;
+  target: RunTarget;
   config: RunAgentConfig;
   rpcs: LaunchRpcs;
   onChange: () => void;
 }
 
 export type RunResult =
-  | { status: "started"; attempt: Attempt; agentId: string }
+  | { status: "started"; attempt: Attempt; agentId: string; workspaceId: string }
   | { status: "error"; message: string; certainty: "not_submitted" | "outcome_unknown" };
 
 function describe(error: unknown, fallback: string): string {
@@ -110,32 +122,85 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
     }
   };
 
-  // Resolve the workspace before any milestone is written: a lookup failure here is still a
-  // "nothing was submitted" outcome, and reporting it as unknown would be a false alarm.
-  const workspace = input.paseo.workspaces.ref(input.workspaceId);
-  try {
-    const snapshot = await workspace.refresh();
-    if (!snapshot?.workspaceDirectory) throw new Error("The workspace has no available directory.");
-  } catch (error) {
-    await abandonNotSubmitted();
-    return { status: "error", message: describe(error, "The workspace is unavailable."), certainty: "not_submitted" };
+  let workspace: PaseoWorkspaceHandle;
+  let workspaceId: string;
+  if (input.target.kind === "existing") {
+    workspaceId = input.target.workspaceId;
+    // Resolve the workspace before any milestone is written: a lookup failure here is still a
+    // "nothing was submitted" outcome, and reporting it as unknown would be a false alarm.
+    workspace = input.paseo.workspaces.ref(workspaceId);
+    try {
+      const snapshot = await workspace.refresh();
+      if (!snapshot?.workspaceDirectory) throw new Error("The workspace has no available directory.");
+    } catch (error) {
+      await abandonNotSubmitted();
+      return { status: "error", message: describe(error, "The workspace is unavailable."), certainty: "not_submitted" };
+    }
+    try {
+      // The workspace already exists, so its stage is known before anything is submitted.
+      await report("workspace-observation", {
+        workspaceIdHint: workspaceId,
+        workspaceObservedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      await abandonNotSubmitted();
+      return { status: "error", message: describe(error, "Could not record the launch."), certainty: "not_submitted" };
+    }
+  } else {
+    // The worktree is a request of its own: record its start first, and treat any failure after
+    // that as unknown, since the daemon may have created the worktree before the reply was lost.
+    try {
+      await report("workspace-request", { workspaceRequestStartedAt: new Date().toISOString() });
+    } catch (error) {
+      await abandonNotSubmitted();
+      return { status: "error", message: describe(error, "Could not record the launch."), certainty: "not_submitted" };
+    }
+    try {
+      workspace = await input.paseo.workspaces.create({
+        source: {
+          kind: "worktree",
+          projectId: input.item.projectId,
+          ...(input.target.projectRootPath ? { cwd: input.target.projectRootPath } : {}),
+          worktreeSlug: input.target.branchName,
+          branchName: input.target.branchName,
+          ...(input.target.baseBranch ? { refName: input.target.baseBranch } : {}),
+        },
+        firstAgentContext: { prompt: input.seedPrompt },
+      });
+      workspaceId = workspace.id;
+    } catch (error) {
+      const message = describe(error, "The worktree request failed with an unknown outcome.");
+      try {
+        await report("workspace-request", {
+          workspaceOutcomeUnknownObservedAt: new Date().toISOString(),
+          lastLaunchErrorCode: "workspace_create_outcome_unknown",
+          lastLaunchErrorMessage: message,
+        });
+      } catch {
+        // Best effort: the attempt already records that the request started.
+      }
+      return { status: "error", message, certainty: "outcome_unknown" };
+    }
+    try {
+      await report("workspace-observation", { workspaceIdHint: workspaceId, workspaceObservedAt: new Date().toISOString() });
+    } catch (error) {
+      // The worktree exists but no agent was requested; the attempt can be abandoned from its card.
+      return { status: "error", message: describe(error, "Could not record the new worktree."), certainty: "outcome_unknown" };
+    }
   }
 
-  const startedAt = new Date().toISOString();
   try {
-    // The workspace already exists, so its stage is known before anything is submitted.
-    await report("workspace-observation", {
-      workspaceIdHint: input.workspaceId,
-      workspaceObservedAt: startedAt,
-    });
     await report("agent-request", {
-      agentRequestStartedAt: startedAt,
-      workspaceIdHint: input.workspaceId,
+      agentRequestStartedAt: new Date().toISOString(),
+      workspaceIdHint: workspaceId,
     });
   } catch (error) {
-    // Nothing was sent to the host yet: release the claim rather than leave it pending.
-    await abandonNotSubmitted();
-    return { status: "error", message: describe(error, "Could not record the launch."), certainty: "not_submitted" };
+    if (input.target.kind === "existing") {
+      // Nothing was sent to the host yet: release the claim rather than leave it pending.
+      await abandonNotSubmitted();
+      return { status: "error", message: describe(error, "Could not record the launch."), certainty: "not_submitted" };
+    }
+    return { status: "error", message: describe(error, "Could not record the launch."), certainty: "outcome_unknown" };
   }
 
   let agentId: string;
@@ -158,7 +223,7 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
     try {
       await report("agent-request", {
         agentOutcomeUnknownObservedAt: now,
-        workspaceIdHint: input.workspaceId,
+        workspaceIdHint: workspaceId,
         lastLaunchErrorCode: "agent_create_outcome_unknown",
         lastLaunchErrorMessage: message,
       });
@@ -169,9 +234,9 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
   }
 
   try {
-    await report("agent-observation", { workspaceIdHint: input.workspaceId }, agentId);
+    await report("agent-observation", { workspaceIdHint: workspaceId }, agentId);
   } catch {
     // The agent exists and carries Todo labels; reconciliation links it on the next pass.
   }
-  return { status: "started", attempt, agentId };
+  return { status: "started", attempt, agentId, workspaceId };
 }

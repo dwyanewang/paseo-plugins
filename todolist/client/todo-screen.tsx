@@ -426,7 +426,7 @@ function TodoReady(props: {
       onChange: () => void reload(),
     };
     if (input.mode === "run") {
-      const result = await runWorkItemNow({ ...shared, paseo, workspaceId: input.workspaceId, config: input.config });
+      const result = await runWorkItemNow({ ...shared, paseo, target: input.target, config: input.config });
       await reload();
       if (result.status === "error") {
         toast.error(result.message);
@@ -561,6 +561,7 @@ function TodoReady(props: {
         open={execute !== null}
         onOpenChange={(open) => !open && setExecute(null)}
         item={execute?.view.item ?? null}
+        project={execute ? projectCache.projects.get(execute.view.item.projectId) : undefined}
         defaultWorkspaceId={props.defaultWorkspaceId}
         canOpenComposer={capability.available}
         onSubmit={submitExecute}

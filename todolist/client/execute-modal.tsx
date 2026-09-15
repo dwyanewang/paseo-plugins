@@ -12,9 +12,11 @@ import type { WorkItem } from "../shared/schema";
 import { useAgentConfigCatalog } from "./agent-config";
 import { Button, Field, Notice } from "./components";
 import type { LaunchTarget } from "./launch";
-import { NEW_WORKSPACE, resolveChoice, resolveWorkspaceTarget } from "./launch-defaults";
+import { createId } from "../shared/ids";
+import { NEW_WORKSPACE, NEW_WORKTREE, resolveChoice, resolveWorkspaceTarget, worktreeNameFor } from "./launch-defaults";
 import { LAUNCH_UPGRADE_NOTICE } from "./launch-guard";
-import type { RunAgentConfig } from "./run";
+import type { ProjectRecord } from "./projects";
+import type { RunAgentConfig, RunTarget } from "./run";
 import type { TodoStyles } from "./styles";
 import { TEXT } from "./text";
 
@@ -24,7 +26,7 @@ export type ExecuteSubmit =
       seedPrompt: string;
       seedPromptSource: "work-item-default" | "launch-edited";
       updateDefaultPrompt: boolean;
-      workspaceId: string;
+      target: RunTarget;
       config: RunAgentConfig;
     }
   | {
@@ -41,6 +43,8 @@ export function ExecuteModal(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   item: WorkItem | null;
+  /** The item's project: only git projects offer a new worktree, which is cut from its root. */
+  project: ProjectRecord | undefined;
   defaultWorkspaceId: string | null;
   canOpenComposer: boolean;
   onSubmit: (input: ExecuteSubmit) => Promise<boolean>;
@@ -63,6 +67,10 @@ export function ExecuteModal(props: {
   const [model, setModel] = useState<string | null>(null);
   const [modeId, setModeId] = useState<string | null>(null);
   const [thinkingOptionId, setThinkingOptionId] = useState<string | null>(null);
+  const [branchName, setBranchName] = useState("");
+  const [baseBranch, setBaseBranch] = useState("");
+  // Generated once per opening, so the placeholder name does not change while the dialog is open.
+  const [nameSuffix, setNameSuffix] = useState(() => createId("att").slice(-4));
   const [busy, setBusy] = useState(false);
 
   const stored = prefs.status === "ready" ? prefs.values : null;
@@ -72,6 +80,9 @@ export function ExecuteModal(props: {
     setUpdateDefault(false);
     setBusy(false);
     setTarget(null);
+    setBranchName("");
+    setBaseBranch("");
+    setNameSuffix(createId("att").slice(-4));
     setMode(null);
     setModel(null);
     setModeId(null);
@@ -95,9 +106,13 @@ export function ExecuteModal(props: {
     () => (workspaces.data ?? []).map((workspace) => ({ value: workspace.id, label: workspace.name })),
     [workspaces.data],
   );
+  const canCreateWorktree = props.project?.projectKind === "git";
   const workspaceOptions = useMemo(
-    () => (effectiveMode === "run" ? existing : [{ value: NEW_WORKSPACE, label: "New workspace" }, ...existing]),
-    [existing, effectiveMode],
+    () =>
+      effectiveMode === "run"
+        ? [...existing, ...(canCreateWorktree ? [{ value: NEW_WORKTREE, label: "New worktree" }] : [])]
+        : [{ value: NEW_WORKSPACE, label: "New workspace" }, ...existing],
+    [existing, effectiveMode, canCreateWorktree],
   );
   const effectiveTarget = resolveWorkspaceTarget({
     mode: effectiveMode,
@@ -105,7 +120,10 @@ export function ExecuteModal(props: {
     saved: item ? stored?.workspaceByProject[item.projectId] : undefined,
     contextual: props.defaultWorkspaceId,
     workspaces: existing,
+    canCreateWorktree,
   });
+  const newWorktree = effectiveMode === "run" && effectiveTarget === NEW_WORKTREE;
+  const generatedBranch = item ? worktreeNameFor(item, nameSuffix) : "";
   const known = (value: string | null | undefined) => Boolean(value) && catalog.models.some((option) => option.value === value);
   const effectiveModel = known(model) ? model! : known(stored?.providerModel) ? stored!.providerModel : (catalog.defaultModel ?? "");
   const modes = effectiveModel ? catalog.modesFor(effectiveModel) : [];
@@ -117,7 +135,7 @@ export function ExecuteModal(props: {
 
   const invalid = validateSeedPrompt(seedPrompt);
   const edited = seedPrompt !== initialSeedPrompt;
-  const noWorkspace = effectiveMode === "run" && !workspaces.isPending && existing.length === 0;
+  const noWorkspace = effectiveMode === "run" && !workspaces.isPending && existing.length === 0 && !canCreateWorktree;
   const noModel = effectiveMode === "run" && catalog.status !== "loading" && catalog.models.length === 0;
   const blocked = Boolean(invalid) || busy || !item || prefs.status === "loading" || workspaces.isPending || !effectiveTarget || (effectiveMode === "run" && !effectiveModel);
 
@@ -135,7 +153,14 @@ export function ExecuteModal(props: {
           ? {
               mode: "run",
               ...shared,
-              workspaceId: effectiveTarget,
+              target: newWorktree
+                ? {
+                    kind: "new_worktree",
+                    branchName: branchName.trim() || generatedBranch,
+                    ...(baseBranch.trim() ? { baseBranch: baseBranch.trim() } : {}),
+                    ...(props.project ? { projectRootPath: props.project.projectRootPath } : {}),
+                  }
+                : { kind: "existing", workspaceId: effectiveTarget },
               config: {
                 providerModel: effectiveModel,
                 ...(effectiveModeId ? { modeId: effectiveModeId } : {}),
@@ -203,6 +228,12 @@ export function ExecuteModal(props: {
         ) : null}
         {workspaceOptions.length > 0 ? (
           <SettingsSelect label="Workspace" value={effectiveTarget} options={workspaceOptions} onValueChange={setTarget} disabled={busy} />
+        ) : null}
+        {newWorktree ? (
+          <>
+            <Field styles={styles} theme={theme} label="Branch" value={branchName} onChangeText={setBranchName} placeholder={generatedBranch} editable={!busy} hint={TEXT.worktreeBranchHint} />
+            <Field styles={styles} theme={theme} label="Base branch" value={baseBranch} onChangeText={setBaseBranch} placeholder="Project default branch" editable={!busy} />
+          </>
         ) : null}
         {effectiveMode === "run" ? (
           <>
