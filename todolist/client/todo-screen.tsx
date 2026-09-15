@@ -12,6 +12,7 @@ import {
   resolveInProgressIntent,
   type BoardFilter,
 } from "../shared/board";
+import { canResumeAttempt } from "../shared/attempt";
 import { documentStatus } from "../shared/contracts";
 import { todoPrefs } from "../shared/prefs";
 import type { Attempt, TodoDocument, WorkItem, WorkItemStatus } from "../shared/schema";
@@ -174,6 +175,7 @@ function TodoReady(props: {
     props.projectFilter ?? (chosenProjectId && projectOptions.some((option) => option.value === chosenProjectId) ? chosenProjectId : null);
   const projectLabel = projectOptions.find((option) => option.value === (projectId ?? ""))?.label ?? props.projectFilterName ?? "All projects";
   const isProjectAvailable = (id: string) => projectCache.status !== "ready" || projectCache.projects.has(id);
+  const noProjects = projectCache.status === "ready" && projectOptions.length === 1;
   const canCreate = projectCache.status === "ready" && projectCache.projects.size > 0 && (projectId === null || isProjectAvailable(projectId));
 
   const board = useMemo(() => buildBoard(views.values(), { projectId, filter, query }), [views, projectId, filter, query]);
@@ -317,7 +319,7 @@ function TodoReady(props: {
           },
         }),
       resume: (view, attempt) => {
-        if (!capability.available || !view.claim) return;
+        if (!capability.available || !view.claim || !canResumeAttempt(attempt)) return;
         void openForAttempt({
           attempt,
           claim: view.claim,
@@ -511,7 +513,8 @@ function TodoReady(props: {
         onFilter={setFilter}
         query={query}
         onQuery={setQuery}
-        onReload={refresh && props.compact ? null : () => void reload()}
+        // Phones pull to refresh, except on the empty state, which has no list to pull.
+        onReload={refresh && props.compact && !noProjects ? null : () => void reload()}
         // New creates in the column a phone board shows, when that column takes new cards.
         onCreate={() => openEditor(phoneBoard && resolveActiveTab(board.columns, tab)?.status === "backlog" ? "backlog" : "todo")}
         canCreate={canCreate}
@@ -529,7 +532,7 @@ function TodoReady(props: {
       ) : null}
       {/* The board takes whatever height is left and scrolls inside its columns, never the page. */}
       <View style={styles.board} onLayout={(event) => setSize({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}>
-        {projectCache.status === "ready" && projectOptions.length === 1 ? (
+        {noProjects ? (
           <EmptyState styles={styles} theme={theme} icon="FolderOpen" title="No projects yet" message="Open a project in Paseo to start the board." />
         ) : filter === "archived" ? (
           <FlatList

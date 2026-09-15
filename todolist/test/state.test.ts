@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { deriveAgentStateBucket } from "@getpaseo/protocol/agent-state-bucket";
-import { abandonAttempt, isAttemptOutcomeUnknown, joinAttemptFacts, stageCertainty } from "../shared/attempt";
+import { abandonAttempt, canResumeAttempt, isAttemptOutcomeUnknown, joinAttemptFacts, stageCertainty } from "../shared/attempt";
 import type { AgentLink, Attempt } from "../shared/schema";
 import { aggregateWorkItem, deriveCanonicalBucket, deriveDisplayState, type AgentStateInput } from "../shared/state";
 import { computeCreationFingerprint, computeRequestFingerprint } from "../shared/fingerprint";
@@ -71,6 +71,14 @@ describe("aggregation", () => {
     const aggregate = aggregateWorkItem({ claim: undefined, attempts: [abandoned], links: [link(), link({ agentId: "b" })] });
     expect(aggregate.duplicateAttemptIds).toEqual(["att-1"]);
     expect(aggregate.blockedReason).toBe("active_agent");
+  });
+
+  it("resumes only a composer journal or an attempt that never sent anything", () => {
+    expect(canResumeAttempt(attempt())).toBe(true);
+    expect(canResumeAttempt(attempt({ journalPreparedAt: NOW, workspaceRequestStartedAt: NOW }))).toBe(true);
+    // A direct run records its request without a journal; reopening it could send it again.
+    expect(canResumeAttempt(attempt({ workspaceRequestStartedAt: NOW }))).toBe(false);
+    expect(canResumeAttempt(attempt({ workspaceObservedAt: NOW, agentRequestStartedAt: NOW }))).toBe(false);
   });
 
   it("joins timestamps as earliest-wins and diagnostics by version", () => {

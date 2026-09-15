@@ -160,14 +160,14 @@ export function dropColumnAt(
 }
 
 /**
- * `columns` when every column fits side by side, `scroll` when at least two fit and the row scrolls
- * horizontally, `tabs` (one column at a time) below that.
+ * `tabs` (one column at a time) whenever two columns would not fit, even when a filter leaves a
+ * single column, so a phone board looks the same under every filter. Wider boards show `columns`
+ * when every column fits side by side and `scroll` when the row has to scroll horizontally.
  */
 export function boardLayout(width: number, columnCount: number, gap: number): "columns" | "scroll" | "tabs" {
-  if (columnCount <= 1) return "columns";
   const needed = (count: number) => count * BOARD_COLUMN_WIDTH + (count - 1) * gap;
-  if (width >= needed(columnCount)) return "columns";
-  return width >= needed(2) ? "scroll" : "tabs";
+  if (width < needed(2)) return "tabs";
+  return width >= needed(columnCount) ? "columns" : "scroll";
 }
 
 /** The agent whose state changed last; the card shows it and counts the rest. */

@@ -133,6 +133,15 @@ export function isAttemptNotSubmitted(attempt: Attempt): boolean {
   );
 }
 
+/**
+ * Resuming reopens the native composer under the same attempt. That is only safe when the composer
+ * prepared a journal for it, or when nothing was ever sent. A direct run never has a journal, and
+ * replaying its attempt could create a second workspace or agent.
+ */
+export function canResumeAttempt(attempt: Attempt): boolean {
+  return Boolean(attempt.journalPreparedAt) || isAttemptNotSubmitted(attempt);
+}
+
 /** An attempt is settled when the user abandoned it or an agent was observed for it. */
 export function isAttemptSettled(attempt: Attempt): boolean {
   return attempt.userDisposition === "abandoned" || Boolean(attempt.firstAgentObservedAt);

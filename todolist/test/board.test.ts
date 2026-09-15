@@ -291,7 +291,9 @@ describe("board presentation", () => {
     expect(boardLayout(4 * 240 + 3 * 12 - 1, 4, 12)).toBe("scroll");
     expect(boardLayout(2 * 240 + 12, 4, 12)).toBe("scroll");
     expect(boardLayout(2 * 240 + 11, 4, 12)).toBe("tabs");
-    expect(boardLayout(100, 1, 12)).toBe("columns");
+    // A filter that leaves one column keeps a phone on tabs, and a wide board on columns.
+    expect(boardLayout(2 * 240 + 11, 1, 12)).toBe("tabs");
+    expect(boardLayout(2 * 240 + 12, 1, 12)).toBe("columns");
   });
 
   it("picks the agent whose state changed last", () => {

@@ -2,7 +2,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, Modal } from "@getpaseo/plugin/client/react-native";
 import { useState, type ReactNode } from "react";
 import { Text, View } from "react-native";
-import { isAttemptNotSubmitted, isAttemptOutcomeUnknown, isAttemptSettled, stageCertainty } from "../shared/attempt";
+import { canResumeAttempt, isAttemptNotSubmitted, isAttemptOutcomeUnknown, isAttemptSettled, stageCertainty } from "../shared/attempt";
 import { STATUS_REASON_LABELS, WORK_ITEM_PRIORITY_LABELS, WORK_ITEM_STATUS_LABELS, formatRelativeTime, resolveInProgressIntent } from "../shared/board";
 import { WORK_ITEM_PRIORITIES, WORK_ITEM_STATUSES, type AgentLink, type Attempt, type WorkItemPriority, type WorkItemStatus } from "../shared/schema";
 import { Badge, Button, Notice, toneColor } from "./components";
@@ -123,7 +123,7 @@ function AttemptCard(props: {
         );
       })}
       <View style={[styles.rowWrap, { gap: 6, justifyContent: "flex-end" }]}>
-        {pending && initiatedHere && !unknown && props.canResume ? (
+        {pending && initiatedHere && !unknown && props.canResume && canResumeAttempt(attempt) ? (
           <Button styles={styles} theme={theme} label="Resume launch" icon="Play" onPress={() => actions.resume(view, attempt)} />
         ) : null}
         {orphanWorkspace && actions.openWorkspace ? (

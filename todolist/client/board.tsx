@@ -83,6 +83,7 @@ function Column(props: {
   onAdd: (status: WorkItemStatus) => void;
   /** Present on wide layouts only. */
   drag: BoardDrag | null;
+  refresh?: { refreshing: boolean; onRefresh: () => void };
 }) {
   const { styles, theme, column, drag } = props;
   const label = WORK_ITEM_STATUS_LABELS[column.status];
@@ -116,7 +117,16 @@ function Column(props: {
           />
         ) : null}
       </View>
-      <ColumnCards styles={styles} theme={theme} column={column} renderCard={props.renderCard} drag={drag} dropTarget={dropTarget} contentStyle={styles.columnBody} />
+      <ColumnCards
+        styles={styles}
+        theme={theme}
+        column={column}
+        renderCard={props.renderCard}
+        drag={drag}
+        dropTarget={dropTarget}
+        contentStyle={styles.columnBody}
+        {...(props.refresh ? { refresh: props.refresh } : {})}
+      />
     </View>
   );
 }
@@ -155,6 +165,7 @@ export function TodoBoard(props: {
       renderCard={props.renderCard}
       onAdd={props.onAdd}
       drag={drag}
+      {...(props.refresh ? { refresh: props.refresh } : {})}
     />
   );
   if (layout === "tabs") {
@@ -184,6 +195,8 @@ export function TodoBoard(props: {
         </ScrollView>
         {active ? (
           <ColumnCards
+            // A new list per tab, so switching never carries the previous column's scroll offset.
+            key={active.status}
             styles={styles}
             theme={theme}
             column={active}

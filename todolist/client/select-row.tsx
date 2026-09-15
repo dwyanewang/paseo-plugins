@@ -30,6 +30,13 @@ interface Rect {
   height: number;
 }
 
+/**
+ * On the web the host traps focus in its top dialog and handles Escape before anything else, and a
+ * React Native Web modal sits outside that dialog. The choices open inline under the row there, so
+ * focus and Escape stay with the dialog; native apps float them like the host's own dropdowns.
+ */
+const INLINE_MENU = Platform.OS === "web";
+
 /** Room kept between the menu and the screen edges, and between the menu and its row. */
 const EDGE = 8;
 const GAP = 4;
@@ -64,8 +71,8 @@ export function InfoRow(props: { styles: TodoStyles; label: string; children: Re
 
 /**
  * A settings row that opens a menu of choices under itself. The value stays on the row's line and
- * truncates instead of wrapping below the label. Like the host's dropdowns, the menu floats in a
- * transparent native modal on phones, so it never stacks another sheet on the dialog it sits in.
+ * truncates instead of wrapping below the label. In native apps the menu floats in a transparent
+ * modal, like the host's dropdowns, so it never stacks another sheet on the dialog it sits in.
  */
 export function SelectRow<Value extends string>(props: {
   styles: TodoStyles;
@@ -83,10 +90,16 @@ export function SelectRow<Value extends string>(props: {
   const { styles, theme } = props;
   const anchor = useRef<View | null>(null);
   const [menuAt, setMenuAt] = useState<Rect | null>(null);
+  const [inlineOpen, setInlineOpen] = useState(false);
+  const expanded = INLINE_MENU ? inlineOpen : menuAt !== null;
   const selected = props.options.find((option) => option.value === props.value);
   const disabled = props.disabled || props.options.length === 0;
 
   function open() {
+    if (INLINE_MENU) {
+      setInlineOpen((current) => !current);
+      return;
+    }
     // Measured before the modal opens: on Android the modal draws under the status bar, while
     // window measurements start below it.
     const statusBar = Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) : 0;
@@ -99,7 +112,7 @@ export function SelectRow<Value extends string>(props: {
         ref={anchor}
         accessibilityRole="button"
         accessibilityLabel={`${props.label}: ${selected?.label ?? props.placeholder ?? "not set"}. Change`}
-        accessibilityState={{ disabled, expanded: menuAt !== null }}
+        accessibilityState={{ disabled, expanded }}
         disabled={disabled}
         onPress={open}
         style={({ hovered, pressed }: { hovered?: boolean; pressed: boolean }) => [
@@ -129,10 +142,24 @@ export function SelectRow<Value extends string>(props: {
           ) : null}
         </View>
         <View style={{ flexShrink: 0 }}>
-          <Icon name="ChevronDown" size={15} color={theme.colors.foregroundMuted} />
+          <Icon name={INLINE_MENU && expanded ? "ChevronUp" : "ChevronDown"} size={15} color={theme.colors.foregroundMuted} />
         </View>
       </Pressable>
-      {menuAt ? (
+      {INLINE_MENU && inlineOpen ? (
+        <View accessibilityRole="menu" accessibilityLabel={props.label} style={{ paddingHorizontal: 8, paddingBottom: 8, gap: 2 }}>
+          <OptionItems
+            styles={styles}
+            theme={theme}
+            value={props.value}
+            options={props.options}
+            onSelect={(value) => {
+              setInlineOpen(false);
+              if (value !== props.value) props.onChange(value);
+            }}
+          />
+        </View>
+      ) : null}
+      {!INLINE_MENU && menuAt ? (
         <SelectMenu
           styles={styles}
           theme={theme}
@@ -184,41 +211,56 @@ function SelectMenu<Value extends string>(props: {
         style={[styles.menu, { position: "absolute", left, top, width, maxHeight, opacity: height === null ? 0 : 1 }]}
       >
         <NativeScrollView style={{ flexGrow: 0 }} bounces={false}>
-          {props.options.map((option) => {
-            const checked = option.value === props.value;
-            return (
-              <Pressable
-                key={option.value}
-                accessibilityRole="menuitem"
-                accessibilityState={{ checked, selected: checked }}
-                accessibilityLabel={option.label}
-                onPress={() => props.onSelect(option.value)}
-                style={({ hovered, pressed }: { hovered?: boolean; pressed: boolean }) => [
-                  styles.menuItem,
-                  hovered || pressed || checked ? { backgroundColor: theme.colors.surface2 } : null,
-                ]}
-              >
-                {option.icon ? (
-                  <View style={{ flexShrink: 0 }}>
-                    <Icon name={option.icon} size={15} color={option.iconColor ?? theme.colors.foregroundMuted} />
-                  </View>
-                ) : null}
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={[styles.body, { fontSize: 14, fontWeight: checked ? "600" : "400" }]} numberOfLines={1}>
-                    {option.label}
-                  </Text>
-                  {option.hint ? (
-                    <Text style={styles.mono} numberOfLines={1}>
-                      {option.hint}
-                    </Text>
-                  ) : null}
-                </View>
-                {checked ? <Icon name="Check" size={15} color={theme.colors.foreground} /> : null}
-              </Pressable>
-            );
-          })}
+          <OptionItems styles={styles} theme={theme} value={props.value} options={props.options} onSelect={props.onSelect} />
         </NativeScrollView>
       </View>
     </NativeModal>
+  );
+}
+
+function OptionItems<Value extends string>(props: {
+  styles: TodoStyles;
+  theme: PluginTheme;
+  value: Value | null;
+  options: readonly SelectOption<Value>[];
+  onSelect: (value: Value) => void;
+}) {
+  const { styles, theme } = props;
+  return (
+    <>
+      {props.options.map((option) => {
+        const checked = option.value === props.value;
+        return (
+          <Pressable
+            key={option.value}
+            accessibilityRole="menuitem"
+            accessibilityState={{ checked, selected: checked }}
+            accessibilityLabel={option.label}
+            onPress={() => props.onSelect(option.value)}
+            style={({ hovered, pressed }: { hovered?: boolean; pressed: boolean }) => [
+              styles.menuItem,
+              hovered || pressed || checked ? { backgroundColor: theme.colors.surface2 } : null,
+            ]}
+          >
+            {option.icon ? (
+              <View style={{ flexShrink: 0 }}>
+                <Icon name={option.icon} size={15} color={option.iconColor ?? theme.colors.foregroundMuted} />
+              </View>
+            ) : null}
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[styles.body, { fontSize: 14, fontWeight: checked ? "600" : "400" }]} numberOfLines={1}>
+                {option.label}
+              </Text>
+              {option.hint ? (
+                <Text style={styles.mono} numberOfLines={1}>
+                  {option.hint}
+                </Text>
+              ) : null}
+            </View>
+            {checked ? <Icon name="Check" size={15} color={theme.colors.foreground} /> : null}
+          </Pressable>
+        );
+      })}
+    </>
   );
 }

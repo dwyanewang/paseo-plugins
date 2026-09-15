@@ -315,6 +315,23 @@ Requested after using the Phase I board. Plan addendum: "第三轮调整" in
   - the menu floats under the row, or above it when there is no room, in a transparent native
     modal, using the host dropdown's Android status-bar offset;
   - the inline chip pickers and the phone-only property toggles are gone.
+- [x] Fixes from an independent review of `3ff3838..5e59e18`:
+  - On the web, choices open inline under their row. The host traps focus in its top dialog and
+    handles Escape first, so a React Native Web modal outside that dialog fought it for focus, and
+    Escape closed the whole dialog.
+  - Failures after a request-start go through one path in `client/run.ts`:
+    - a failed start report releases the claim only when the daemon accepts "not submitted";
+      otherwise the outcome is recorded as unknown;
+    - a created worktree keeps its identity when observing it fails.
+  - Resume launch needs a composer journal, or an attempt that never sent anything
+    (`canResumeAttempt`). A direct run's attempt can no longer be replayed through the composer.
+  - Phones stay on the tabs layout when a filter leaves one column, so New creates in Backlog under
+    the Backlog filter and no second "+" appears.
+  - Pull to refresh reaches every board layout. Reload stays on the empty state.
+  - Each phone tab gets its own list, so a tab never opens at the previous column's scroll offset.
+  - The unused `ModelOption.label` and `header` style are removed.
+  - Tests: launch writes backed by the real mutations that fail before they land or lose their
+    reply (three of the four fail on the previous `run.ts`), resume gating, and the one-column layout.
 
 Tests: 123 unit tests (worktree run order and failure, branch naming, theme tone) and two E2E tests.
 The new E2E test cuts a real worktree and links the agent to it.

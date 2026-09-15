@@ -107,9 +107,10 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
     input.onChange();
     if (result.status !== "ok") throw new Error(result.message);
   };
-  const abandonNotSubmitted = async () => {
+  /** Releases the claim; false when the daemon refused because a milestone was already recorded. */
+  const abandonNotSubmitted = async (): Promise<boolean> => {
     try {
-      await input.rpcs.abandon({
+      const result = await input.rpcs.abandon({
         expectedIncarnationId: input.incarnationId,
         workItemId: input.item.id,
         attemptId: attempt.id,
@@ -117,9 +118,48 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
         certainty: "not_submitted",
       });
       input.onChange();
+      return result.status === "ok";
     } catch {
       // The attempt stays pending and the user can abandon it from the attempt card.
+      return false;
     }
+  };
+  /**
+   * A request may have reached the host, or its start was recorded even though the reply was lost.
+   * Nothing is retried: the outcome is recorded as unknown, with the workspace when one is known, so
+   * the card offers abandon instead of resuming the same attempt. The record itself is best effort.
+   */
+  const outcomeUnknown = async (
+    stage: "workspace" | "agent",
+    failure: { error: unknown; fallback: string; code: string; workspaceId?: string },
+  ): Promise<RunResult> => {
+    const message = describe(failure.error, failure.fallback);
+    const now = new Date().toISOString();
+    try {
+      await report(stage === "workspace" ? "workspace-request" : "agent-request", {
+        ...(stage === "workspace" ? { workspaceOutcomeUnknownObservedAt: now } : { agentOutcomeUnknownObservedAt: now }),
+        ...(failure.workspaceId ? { workspaceIdHint: failure.workspaceId } : {}),
+        lastLaunchErrorCode: failure.code,
+        lastLaunchErrorMessage: message,
+      });
+    } catch {
+      // Still unknown: the daemon-side reconciler finds a late workspace or agent by its labels.
+    }
+    return { status: "error", message, certainty: "outcome_unknown" };
+  };
+  /**
+   * Recording a request-start failed, yet the write may have landed before the reply was lost.
+   * The claim is released only when the daemon agrees nothing was recorded; otherwise the start
+   * stands and the outcome is unknown.
+   */
+  const releaseOrUnknown = async (
+    stage: "workspace" | "agent",
+    failure: { error: unknown; fallback: string; code: string; workspaceId?: string },
+  ): Promise<RunResult> => {
+    if (await abandonNotSubmitted()) {
+      return { status: "error", message: describe(failure.error, failure.fallback), certainty: "not_submitted" };
+    }
+    return outcomeUnknown(stage, failure);
   };
 
   let workspace: PaseoWorkspaceHandle;
@@ -152,8 +192,7 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
     try {
       await report("workspace-request", { workspaceRequestStartedAt: new Date().toISOString() });
     } catch (error) {
-      await abandonNotSubmitted();
-      return { status: "error", message: describe(error, "Could not record the launch."), certainty: "not_submitted" };
+      return releaseOrUnknown("workspace", { error, fallback: "Could not record the launch.", code: "workspace_request_unrecorded" });
     }
     try {
       workspace = await input.paseo.workspaces.create({
@@ -169,23 +208,22 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
       });
       workspaceId = workspace.id;
     } catch (error) {
-      const message = describe(error, "The worktree request failed with an unknown outcome.");
-      try {
-        await report("workspace-request", {
-          workspaceOutcomeUnknownObservedAt: new Date().toISOString(),
-          lastLaunchErrorCode: "workspace_create_outcome_unknown",
-          lastLaunchErrorMessage: message,
-        });
-      } catch {
-        // Best effort: the attempt already records that the request started.
-      }
-      return { status: "error", message, certainty: "outcome_unknown" };
+      return outcomeUnknown("workspace", {
+        error,
+        fallback: "The worktree request failed with an unknown outcome.",
+        code: "workspace_create_outcome_unknown",
+      });
     }
     try {
       await report("workspace-observation", { workspaceIdHint: workspaceId, workspaceObservedAt: new Date().toISOString() });
     } catch (error) {
-      // The worktree exists but no agent was requested; the attempt can be abandoned from its card.
-      return { status: "error", message: describe(error, "Could not record the new worktree."), certainty: "outcome_unknown" };
+      // The worktree exists but no agent was requested. Keep its identity so the card can open it.
+      return outcomeUnknown("workspace", {
+        error,
+        fallback: "Could not record the new worktree.",
+        code: "workspace_observation_unrecorded",
+        workspaceId,
+      });
     }
   }
 
@@ -195,12 +233,8 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
       workspaceIdHint: workspaceId,
     });
   } catch (error) {
-    if (input.target.kind === "existing") {
-      // Nothing was sent to the host yet: release the claim rather than leave it pending.
-      await abandonNotSubmitted();
-      return { status: "error", message: describe(error, "Could not record the launch."), certainty: "not_submitted" };
-    }
-    return { status: "error", message: describe(error, "Could not record the launch."), certainty: "outcome_unknown" };
+    // Nothing was sent to the host yet, but the start may have been recorded.
+    return releaseOrUnknown("agent", { error, fallback: "Could not record the launch.", code: "agent_request_unrecorded", workspaceId });
   }
 
   let agentId: string;
@@ -218,19 +252,12 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
     });
     agentId = agent.id;
   } catch (error) {
-    const message = describe(error, "The agent request failed with an unknown outcome.");
-    const now = new Date().toISOString();
-    try {
-      await report("agent-request", {
-        agentOutcomeUnknownObservedAt: now,
-        workspaceIdHint: workspaceId,
-        lastLaunchErrorCode: "agent_create_outcome_unknown",
-        lastLaunchErrorMessage: message,
-      });
-    } catch {
-      // Best effort: the daemon-side reconciler still finds a late agent by its Todo labels.
-    }
-    return { status: "error", message, certainty: "outcome_unknown" };
+    return outcomeUnknown("agent", {
+      error,
+      fallback: "The agent request failed with an unknown outcome.",
+      code: "agent_create_outcome_unknown",
+      workspaceId,
+    });
   }
 
   try {

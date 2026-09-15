@@ -10,7 +10,6 @@ export interface TodoStyles {
   gap: number;
   screen: ViewStyle;
   page: ViewStyle;
-  header: ViewStyle;
   headerTitle: TextStyle;
   toolbar: ViewStyle;
   toolbarGroup: ViewStyle;
@@ -122,7 +121,6 @@ export function useTodoStyles(theme: PluginTheme, compact: boolean): TodoStyles 
       gap,
       screen: { flex: 1, backgroundColor: colors.surface0, padding: pad, gap },
       page: { flex: 1, backgroundColor: colors.surface0, paddingHorizontal: pad, paddingTop: pad, paddingBottom: compact ? SPACE.sm : pad, gap },
-      header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap },
       headerTitle: { color: colors.foreground, fontSize: compact ? 17 : 18, fontWeight: "600" },
       toolbar: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: SPACE.sm },
       toolbarGroup: { flexDirection: "row", alignItems: "center", gap: SPACE.sm },

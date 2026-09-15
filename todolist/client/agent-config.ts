@@ -9,9 +9,8 @@ type SnapshotEntry = Snapshot["entries"][number];
 export interface ModelOption {
   /** `provider/model`, the form the host agent API expects. */
   value: string;
-  label: string;
   provider: string;
-  /** The model's own name, for pickers that already show its provider. */
+  /** The model's own name; the provider is picked first. */
   modelLabel: string;
   thinkingOptions: ModeOption[];
   defaultThinkingOptionId: string;
@@ -63,7 +62,6 @@ export function buildCatalogChoices(snapshotEntries: readonly SnapshotEntry[]): 
       const value = `${entry.provider}/${model.id}`;
       models.push({
         value,
-        label: `${providerLabel} · ${model.label}`,
         provider: entry.provider,
         modelLabel: model.label,
         thinkingOptions: (model.thinkingOptions ?? []).map((option) => ({ value: option.id, label: option.label })),

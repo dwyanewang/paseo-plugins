@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { runWorkItemNow, type RunInput } from "../client/run";
-import { baseDocument, withClaim, withWorkItem } from "./helpers/setup";
+import { abandonLaunchMutation, acquireLaunchMutation, reportLaunchProgressMutation } from "../server/mutations";
+import { isAttemptOutcomeUnknown } from "../shared/attempt";
+import type { TodoDocument } from "../shared/schema";
+import { NOW, baseDocument, withClaim, withWorkItem } from "./helpers/setup";
 
 function setup(thinkingOptionId?: string) {
   const document = withClaim(withWorkItem(baseDocument(), "wi-1"), "wi-1", "att-1");
@@ -82,5 +85,93 @@ describe("direct execution", () => {
     expect(create).not.toHaveBeenCalled();
     expect(abandon).not.toHaveBeenCalled();
     expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({ facet: "workspace-request", facts: expect.objectContaining({ workspaceOutcomeUnknownObservedAt: expect.any(String), lastLaunchErrorCode: "workspace_create_outcome_unknown" }) }));
+  });
+});
+
+/**
+ * Launch RPCs backed by the real mutations. A write can be set to fail before it lands, or to land
+ * and then lose its reply, which is what a dropped connection does to the client.
+ */
+function persistentLaunch() {
+  let document: TodoDocument = withWorkItem(baseDocument(), "wi-1");
+  const faults = new Map<string, "before" | "after">();
+  type Outcome = { status: string; values?: TodoDocument; result?: object; message?: string };
+  const settle = (key: string, outcome: Outcome) => {
+    const fault = faults.get(key);
+    faults.delete(key);
+    if (fault === "before") throw new Error("connection lost");
+    if (outcome.status === "commit" && outcome.values) document = outcome.values;
+    if (fault === "after") throw new Error("connection lost");
+    return outcome.status === "commit" || outcome.status === "unchanged" ? { status: "ok", ...outcome.result } : outcome;
+  };
+  const rpcs = {
+    // The server handler adds project availability from the host before calling the mutation.
+    acquire: async (input: object) => settle("acquire", acquireLaunchMutation(document, { ...input, projectAvailable: true } as never, NOW) as Outcome),
+    progress: async (input: { facet: string }) => settle(`progress:${input.facet}`, reportLaunchProgressMutation(document, input as never, NOW) as Outcome),
+    abandon: async (input: unknown) => settle("abandon", abandonLaunchMutation(document, input as never, NOW) as Outcome),
+  } as unknown as RunInput["rpcs"];
+  const create = vi.fn().mockResolvedValue({ id: "agent-1" });
+  const createWorkspace = vi.fn().mockResolvedValue({ id: "wks-new", agents: { create } });
+  const refresh = vi.fn().mockResolvedValue({ workspaceDirectory: "/project/selected" });
+  const input: RunInput = {
+    paseo: { workspaces: { ref: vi.fn().mockReturnValue({ refresh, agents: { create } }), create: createWorkspace } } as unknown as RunInput["paseo"],
+    item: document.workItems["wi-1"]!,
+    incarnationId: document.incarnationId,
+    seedPrompt: "Do the work",
+    seedPromptSource: "work-item-default",
+    initiatorLabel: "Test",
+    target: { kind: "new_worktree", branchName: "todo-1-k3x9" },
+    config: { providerModel: "claude/opus" },
+    rpcs,
+    onChange: vi.fn(),
+  };
+  return {
+    input,
+    create,
+    createWorkspace,
+    fail: (key: string, when: "before" | "after") => faults.set(key, when),
+    attempt: () => Object.values(document.attempts)[0]!,
+    claim: () => document.claims["wi-1"],
+  };
+}
+
+describe("direct execution when a launch write loses its reply", () => {
+  it("keeps an unknown outcome when the worktree request start landed but its reply was lost", async () => {
+    const launch = persistentLaunch();
+    launch.fail("progress:workspace-request", "after");
+    await expect(runWorkItemNow(launch.input)).resolves.toMatchObject({ status: "error", certainty: "outcome_unknown" });
+    expect(launch.createWorkspace).not.toHaveBeenCalled();
+    // The daemon refused to call it "not submitted", so the claim stays and the outcome is unknown.
+    expect(launch.claim()?.state).toBe("pending");
+    expect(isAttemptOutcomeUnknown(launch.attempt())).toBe(true);
+    expect(launch.attempt().lastLaunchErrorCode).toBe("workspace_request_unrecorded");
+  });
+
+  it("releases the claim when the worktree request start never landed", async () => {
+    const launch = persistentLaunch();
+    launch.fail("progress:workspace-request", "before");
+    await expect(runWorkItemNow(launch.input)).resolves.toMatchObject({ status: "error", certainty: "not_submitted" });
+    expect(launch.claim()?.state).toBe("abandoned");
+    expect(launch.createWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("records the new worktree and an unknown outcome when observing it fails", async () => {
+    const launch = persistentLaunch();
+    launch.fail("progress:workspace-observation", "before");
+    await expect(runWorkItemNow(launch.input)).resolves.toMatchObject({ status: "error", certainty: "outcome_unknown" });
+    expect(launch.create).not.toHaveBeenCalled();
+    expect(launch.attempt()).toMatchObject({ workspaceIdHint: "wks-new", lastLaunchErrorCode: "workspace_observation_unrecorded" });
+    expect(isAttemptOutcomeUnknown(launch.attempt())).toBe(true);
+  });
+
+  it("never sends the agent request after its start landed without a reply", async () => {
+    const launch = persistentLaunch();
+    launch.input.target = { kind: "existing", workspaceId: "selected-workspace" };
+    launch.fail("progress:agent-request", "after");
+    await expect(runWorkItemNow(launch.input)).resolves.toMatchObject({ status: "error", certainty: "outcome_unknown" });
+    expect(launch.create).not.toHaveBeenCalled();
+    expect(launch.claim()?.state).toBe("pending");
+    expect(isAttemptOutcomeUnknown(launch.attempt())).toBe(true);
+    expect(launch.attempt().workspaceIdHint).toBe("selected-workspace");
   });
 });
