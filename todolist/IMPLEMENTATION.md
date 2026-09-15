@@ -307,6 +307,14 @@ Requested after using the Phase I board. Plan addendum: "第三轮调整" in
   - the settings sit in grouped cards: Run (Launch, Workspace, the worktree fields) and Agent
     (Provider, Model, Mode, Thinking);
   - the launch choices are shorter: "Run now" and "In the composer".
+- [x] One select row everywhere (`client/select-row.tsx`):
+  - used by the card detail (Status, Priority), the execute dialog, and the editor (Project, Column,
+    Priority);
+  - a label on the left, the value truncated on the right: the host's settings row wrapped long
+    values such as a workspace name under its fixed-width label on phones;
+  - the menu floats under the row, or above it when there is no room, in a transparent native
+    modal, using the host dropdown's Android status-bar offset;
+  - the inline chip pickers and the phone-only property toggles are gone.
 
 Tests: 123 unit tests (worktree run order and failure, branch naming, theme tone) and two E2E tests.
 The new E2E test cuts a real worktree and links the agent to it.

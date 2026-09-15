@@ -252,16 +252,6 @@ export function Field(props: {
   );
 }
 
-/** A labelled group inside a dialog. */
-export function FormLabel(props: { styles: TodoStyles; label: string; children: ReactNode }) {
-  return (
-    <View style={{ gap: 6 }}>
-      <Text style={props.styles.fieldLabel}>{props.label}</Text>
-      {props.children}
-    </View>
-  );
-}
-
 /** Dialog footer: secondary actions first, the primary one last, all aligned to the end. */
 export function DialogActions(props: { styles: TodoStyles; children: ReactNode }) {
   return <View style={[props.styles.rowWrap, { justifyContent: "flex-end", paddingTop: 4 }]}>{props.children}</View>;

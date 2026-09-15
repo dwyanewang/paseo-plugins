@@ -75,8 +75,12 @@ export interface TodoStyles {
   chipSelectedText: TextStyle;
   listRow: ViewStyle;
   listRowSelected: ViewStyle;
-  propertyRow: ViewStyle;
-  propertyLabel: TextStyle;
+  group: ViewStyle;
+  selectRow: ViewStyle;
+  rowLabel: TextStyle;
+  rowValue: TextStyle;
+  menu: ViewStyle;
+  menuItem: ViewStyle;
   section: ViewStyle;
   sectionHeader: ViewStyle;
   detailTitle: TextStyle;
@@ -268,8 +272,20 @@ export function useTodoStyles(theme: PluginTheme, compact: boolean): TodoStyles 
         backgroundColor: colors.surface1,
       },
       listRowSelected: { borderColor: colors.accent },
-      propertyRow: { flexDirection: "row", alignItems: "flex-start", gap: SPACE.md },
-      propertyLabel: { color: colors.foregroundMuted, fontSize: 12, width: 64, paddingTop: 5 },
+      // Rows of settings in one bordered card, like the host's settings cards.
+      group: { backgroundColor: colors.surface1, borderColor: colors.border, borderWidth: 1, borderRadius: RADIUS.lg, overflow: "hidden" },
+      selectRow: { flexDirection: "row", alignItems: "center", gap: SPACE.md, minHeight: 48, paddingHorizontal: 14, paddingVertical: SPACE.sm },
+      rowLabel: { color: colors.foreground, fontSize: 14 },
+      rowValue: { color: colors.foreground, fontSize: 14, textAlign: "right" },
+      menu: {
+        backgroundColor: dark ? colors.surface1 : colors.surface0,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: RADIUS.lg,
+        padding: 4,
+        boxShadow: dark ? "0px 8px 24px rgba(0, 0, 0, 0.5)" : "0px 8px 24px rgba(0, 0, 0, 0.12)",
+      },
+      menuItem: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 40, paddingHorizontal: 10, paddingVertical: 8, borderRadius: RADIUS.sm },
       section: { gap: SPACE.sm },
       sectionHeader: { flexDirection: "row", alignItems: "center", gap: SPACE.sm, minHeight: 28 },
       detailTitle: { color: colors.foreground, fontSize: 17, fontWeight: "600", lineHeight: 24 },

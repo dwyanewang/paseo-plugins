@@ -1,66 +1,12 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, Modal } from "@getpaseo/plugin/client/react-native";
 import { Pressable, Text, View } from "react-native";
-import { WORK_ITEM_PRIORITY_LABELS, WORK_ITEM_STATUS_LABELS } from "../shared/board";
-import { WORK_ITEM_PRIORITIES, WORK_ITEM_STATUSES, type WorkItemPriority, type WorkItemStatus } from "../shared/schema";
-import { Button, Chip } from "./components";
+import { WORK_ITEM_STATUS_LABELS } from "../shared/board";
+import { WORK_ITEM_STATUSES, type WorkItemStatus } from "../shared/schema";
+import { Button } from "./components";
 import type { WorkItemView } from "./data";
 import type { TodoStyles } from "./styles";
-import { PRIORITY_PRESENTATION, STATUS_PRESENTATION } from "./text";
-
-/** Columns as radio chips: the keyboard and screen-reader way to move a card. */
-export function StatusPicker(props: {
-  styles: TodoStyles;
-  theme: PluginTheme;
-  value: WorkItemStatus;
-  onChange: (status: WorkItemStatus) => void;
-  statuses?: readonly WorkItemStatus[];
-}) {
-  const { styles, theme } = props;
-  return (
-    <View accessibilityRole="radiogroup" accessibilityLabel="Column" style={[styles.rowWrap, { gap: 6 }]}>
-      {(props.statuses ?? WORK_ITEM_STATUSES).map((status) => (
-        <Chip
-          key={status}
-          styles={styles}
-          theme={theme}
-          role="radio"
-          label={WORK_ITEM_STATUS_LABELS[status]}
-          icon={STATUS_PRESENTATION[status].icon}
-          iconColor={theme.colors[STATUS_PRESENTATION[status].color]}
-          selected={status === props.value}
-          onPress={() => props.onChange(status)}
-        />
-      ))}
-    </View>
-  );
-}
-
-export function PriorityPicker(props: {
-  styles: TodoStyles;
-  theme: PluginTheme;
-  value: WorkItemPriority;
-  onChange: (priority: WorkItemPriority) => void;
-}) {
-  const { styles, theme } = props;
-  return (
-    <View accessibilityRole="radiogroup" accessibilityLabel="Priority" style={[styles.rowWrap, { gap: 6 }]}>
-      {WORK_ITEM_PRIORITIES.map((priority) => (
-        <Chip
-          key={priority}
-          styles={styles}
-          theme={theme}
-          role="radio"
-          label={WORK_ITEM_PRIORITY_LABELS[priority]}
-          icon={PRIORITY_PRESENTATION[priority].icon}
-          iconColor={theme.colors[PRIORITY_PRESENTATION[priority].color]}
-          selected={priority === props.value}
-          onPress={() => props.onChange(priority)}
-        />
-      ))}
-    </View>
-  );
-}
+import { STATUS_PRESENTATION } from "./text";
 
 /** A card's quick menu: one row per column, the current one checked. */
 export function MoveMenu(props: {

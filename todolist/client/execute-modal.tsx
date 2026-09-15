@@ -1,7 +1,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { usePaseo, useSettings } from "@getpaseo/plugin/client";
 import { Icon, Modal, useToast } from "@getpaseo/plugin/client/react-native";
-import { SettingsCard, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
+import { SettingsCard, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Text, View } from "react-native";
@@ -17,6 +17,7 @@ import { NEW_WORKSPACE, NEW_WORKTREE, resolveChoice, resolveWorkspaceTarget, wor
 import { LAUNCH_UPGRADE_NOTICE } from "./launch-guard";
 import type { ProjectRecord } from "./projects";
 import type { RunAgentConfig, RunTarget } from "./run";
+import { RowGroup, SelectRow } from "./select-row";
 import type { TodoStyles } from "./styles";
 import { TEXT } from "./text";
 
@@ -246,23 +247,36 @@ export function ExecuteModal(props: {
         {!props.canOpenComposer ? <Notice styles={styles} theme={theme}>{LAUNCH_UPGRADE_NOTICE}</Notice> : null}
 
         <Group styles={styles} title="Run">
-          <SettingsCard>
+          <RowGroup styles={styles}>
             {props.canOpenComposer ? (
-              <SettingsSelect
+              <SelectRow
+                styles={styles}
+                theme={theme}
                 label="Launch"
                 value={effectiveMode}
                 options={[
-                  { value: "run", label: "Run now" },
-                  { value: "composer", label: "In the composer" },
+                  { value: "run", label: "Run now", icon: "Play" },
+                  { value: "composer", label: "In the composer", icon: "SquarePen" },
                 ]}
-                onValueChange={(value) => setMode(value as LaunchMode)}
+                onChange={(value) => setMode(value as LaunchMode)}
                 disabled={busy}
               />
             ) : null}
             {workspaceOptions.length > 0 ? (
-              <SettingsSelect label="Workspace" value={effectiveTarget} options={workspaceOptions} onValueChange={setTarget} disabled={busy} />
+              <SelectRow
+                styles={styles}
+                theme={theme}
+                label="Workspace"
+                value={effectiveTarget || null}
+                options={workspaceOptions.map((option) => ({
+                  ...option,
+                  icon: option.value === NEW_WORKTREE ? "GitBranchPlus" : option.value === NEW_WORKSPACE ? "FolderPlus" : "Folder",
+                }))}
+                onChange={setTarget}
+                disabled={busy}
+              />
             ) : null}
-          </SettingsCard>
+          </RowGroup>
           {newWorktree ? (
             <View style={[styles.card, { gap: 12 }]}>
               <Field styles={styles} theme={theme} label="Branch" value={branchName} onChangeText={setBranchName} placeholder={generatedBranch} editable={!busy} hint={TEXT.worktreeBranchHint} monospace />
@@ -273,13 +287,15 @@ export function ExecuteModal(props: {
 
         {effectiveMode === "run" && catalog.models.length > 0 ? (
           <Group styles={styles} title="Agent">
-            <SettingsCard>
+            <RowGroup styles={styles}>
               {catalog.providers.length > 1 ? (
-                <SettingsSelect
+                <SelectRow
+                  styles={styles}
+                  theme={theme}
                   label="Provider"
-                  value={effectiveProvider}
+                  value={effectiveProvider || null}
                   options={catalog.providers}
-                  onValueChange={(provider) => {
+                  onChange={(provider) => {
                     setModel(catalog.defaultModelFor(provider));
                     setModeId(null);
                     setThinkingOptionId(null);
@@ -287,11 +303,13 @@ export function ExecuteModal(props: {
                   disabled={busy}
                 />
               ) : null}
-              <SettingsSelect
+              <SelectRow
+                styles={styles}
+                theme={theme}
                 label="Model"
-                value={effectiveModel}
+                value={effectiveModel || null}
                 options={providerModels.map((option) => ({ value: option.value, label: option.modelLabel }))}
-                onValueChange={(value) => {
+                onChange={(value) => {
                   setModel(value);
                   setModeId(null);
                   setThinkingOptionId(null);
@@ -299,12 +317,12 @@ export function ExecuteModal(props: {
                 disabled={busy}
               />
               {modes.length > 0 ? (
-                <SettingsSelect label="Mode" value={effectiveModeId} options={modes} onValueChange={setModeId} disabled={busy} />
+                <SelectRow styles={styles} theme={theme} label="Mode" value={effectiveModeId || null} options={modes} onChange={setModeId} disabled={busy} />
               ) : null}
               {thinkingOptions.length > 0 ? (
-                <SettingsSelect label="Thinking" value={effectiveThinkingOptionId} options={thinkingOptions} onValueChange={setThinkingOptionId} disabled={busy} />
+                <SelectRow styles={styles} theme={theme} label="Thinking" value={effectiveThinkingOptionId || null} options={thinkingOptions} onChange={setThinkingOptionId} disabled={busy} />
               ) : null}
-            </SettingsCard>
+            </RowGroup>
           </Group>
         ) : null}
 

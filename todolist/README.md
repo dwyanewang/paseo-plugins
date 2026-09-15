@@ -29,6 +29,7 @@ branch, which adds the two generic core extensions this plugin needs:
 | `server/reconcile.ts` | Bootstrap scan (single subscribe), live upserts/removes, targeted refresh, periodic scan ∪ known-ID refresh, in-process watermarks and dirty reruns, bounded timeline search. |
 | `client/run.ts` | Direct run: acquire, request-start milestones, `workspace.agents.create`, agent-observation. Same attempt records the composer path writes. |
 | `client/board*.tsx`, `client/card-detail.tsx`, `client/move-menu.tsx`, `client/card-picker.tsx` | Board view: project filter, status filters and search, full-height columns that scroll their own cards (side by side, scrolling sideways, or status tabs by width), cards, pointer drag between columns on wide layouts, the move menu, the card picker behind a column's "+", and the card detail. |
+| `client/select-row.tsx` | The dropdown row used by the card detail, execute dialog and editor: label left, truncated value right, and a floating menu of choices. |
 | `client/styles.ts`, `client/components.tsx` | Shared look: spacing and type scale, surfaces derived from the host theme (light or dark), and the buttons, chips, segmented filter, notices, fields and radio lists every screen uses. |
 | `client/continue-modal.tsx`, `client/follow-up.ts` | Moving into In progress: the follow-up and approval dialog, and the stable-message-ID send. |
 | `client/` | React Native surface, sidebar item, workspace panel, settings screen, launch flows, recovery screen. |

@@ -1,14 +1,15 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Modal } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useState } from "react";
-import { Text, View } from "react-native";
+import { Text } from "react-native";
 import { validateWorkItemFields } from "../shared/limits";
-import type { WorkItem, WorkItemPriority } from "../shared/schema";
-import { Button, DialogActions, Field, FormLabel, Notice, Select } from "./components";
-import { PriorityPicker, StatusPicker } from "./move-menu";
+import { WORK_ITEM_PRIORITIES, type WorkItem, type WorkItemPriority } from "../shared/schema";
+import { WORK_ITEM_PRIORITY_LABELS, WORK_ITEM_STATUS_LABELS } from "../shared/board";
+import { Button, DialogActions, Field, Notice, Select } from "./components";
+import { InfoRow, RowGroup, SelectRow } from "./select-row";
 import type { ProjectRecord } from "./projects";
 import type { TodoStyles } from "./styles";
-import { TEXT } from "./text";
+import { PRIORITY_PRESENTATION, STATUS_PRESENTATION, TEXT } from "./text";
 
 /** New work starts in one of these; later columns are reached by moving the card. */
 export type StartingStatus = "backlog" | "todo";
@@ -94,21 +95,46 @@ export function WorkItemEditor(props: {
         <Field styles={styles} theme={theme} label="Title" value={title} onChangeText={setTitle} placeholder="What needs to happen" autoFocus={!item} />
         <Field styles={styles} theme={theme} label="Details" value={details} onChangeText={setDetails} multiline placeholder="Notes for you (not sent to the agent unless you put them in the prompt)" />
         <Field styles={styles} theme={theme} label="Default prompt" value={defaultPrompt} onChangeText={setDefaultPrompt} multiline placeholder="Seed prompt used when you execute this item" />
-        <View style={[styles.rowWrap, { gap: 16, alignItems: "flex-start" }]}>
-          <FormLabel styles={styles} label="Priority">
-            <PriorityPicker styles={styles} theme={theme} value={priority} onChange={setPriority} />
-          </FormLabel>
+        <RowGroup styles={styles}>
+          {item ? (
+            <InfoRow styles={styles} label="Project">
+              <Text style={[styles.rowValue, { color: theme.colors.foregroundMuted }]} numberOfLines={1}>
+                {item.projectNameSnapshot}
+              </Text>
+            </InfoRow>
+          ) : (
+            <SelectRow styles={styles} theme={theme} label="Project" value={projectId} placeholder="Choose a project" options={options} onChange={setProjectId} />
+          )}
           {!item ? (
-            <FormLabel styles={styles} label="Column">
-              <StatusPicker styles={styles} theme={theme} value={status} statuses={STARTING_STATUSES} onChange={(next) => setStatus(next as StartingStatus)} />
-            </FormLabel>
+            <SelectRow
+              styles={styles}
+              theme={theme}
+              label="Column"
+              value={status}
+              options={STARTING_STATUSES.map((entry) => ({
+                value: entry,
+                label: WORK_ITEM_STATUS_LABELS[entry],
+                icon: STATUS_PRESENTATION[entry].icon,
+                iconColor: theme.colors[STATUS_PRESENTATION[entry].color],
+              }))}
+              onChange={setStatus}
+            />
           ) : null}
-        </View>
-        {item ? (
-          <Text style={styles.mono}>Project: {item.projectNameSnapshot}. Use Rebind project to move it.</Text>
-        ) : (
-          <Select styles={styles} theme={theme} label="Project" value={projectId} options={options} onChange={setProjectId} />
-        )}
+          <SelectRow
+            styles={styles}
+            theme={theme}
+            label="Priority"
+            value={priority}
+            options={WORK_ITEM_PRIORITIES.map((entry) => ({
+              value: entry,
+              label: WORK_ITEM_PRIORITY_LABELS[entry],
+              icon: PRIORITY_PRESENTATION[entry].icon,
+              iconColor: theme.colors[PRIORITY_PRESENTATION[entry].color],
+            }))}
+            onChange={setPriority}
+          />
+        </RowGroup>
+        {item ? <Text style={styles.mono}>Use Rebind project in the card detail to move it to another project.</Text> : null}
         {invalid ? (
           <Notice styles={styles} theme={theme} kind="warning">{`${invalid.field} is ${invalid.reason.replace("_", " ")}.`}</Notice>
         ) : null}

@@ -682,7 +682,6 @@ function TodoReady(props: {
         canLaunch={capability.available}
         projectAvailable={detailView ? isProjectAvailable(detailView.item.projectId) : true}
         now={now}
-        compact={props.compact}
       />
       <ConfirmModal
         styles={styles}
