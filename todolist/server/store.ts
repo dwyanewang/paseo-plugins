@@ -1,4 +1,5 @@
-import type { PluginSettingsDocument, PluginSettingsError } from "@getpaseo/plugin";
+import type { PluginSettingsErrorCode } from "@getpaseo/plugin";
+import type { PluginSettings } from "@getpaseo/plugin/server";
 import type { TodoErrorCode } from "../shared/contracts";
 import {
   CAPACITY,
@@ -8,7 +9,7 @@ import {
 } from "../shared/limits";
 import { TODO_SETTINGS_VERSION, type TodoDocument, type TodoDocumentSchema } from "../shared/schema";
 
-export type TodoSettingsDocument = PluginSettingsDocument<typeof TodoDocumentSchema>;
+export type TodoSettingsDocument = PluginSettings<typeof TodoDocumentSchema>;
 
 export interface MutationError {
   status: TodoErrorCode;
@@ -37,11 +38,11 @@ export interface TodoStoreOptions {
   }) => void;
 }
 
-function invalidError(error: PluginSettingsError): MutationError {
+function invalidError(invalid: { error: string; code?: PluginSettingsErrorCode }): MutationError {
   return {
     status: "document_invalid",
-    message: error.message,
-    details: { code: error.code },
+    message: invalid.error,
+    details: { code: invalid.code ?? "stored_invalid" },
   };
 }
 
@@ -78,14 +79,14 @@ export class TodoStore {
         result: true,
       };
     });
-    if (updated.status === "invalid") return invalidError(updated.error);
-    return { status: "ok", document: updated.snapshot.values, initialized: updated.result };
+    if (updated.status === "invalid") return invalidError(updated);
+    return { status: "ok", document: updated.values, initialized: updated.result };
   }
 
   async read(): Promise<{ status: "ok"; document: TodoDocument } | MutationError> {
     const result = await this.document.read();
-    if (result.status === "invalid") return invalidError(result.error);
-    return { status: "ok", document: result.snapshot.values };
+    if (result.status === "invalid") return invalidError(result);
+    return { status: "ok", document: result.values };
   }
 
   async mutate<Result>(input: {
@@ -171,7 +172,7 @@ export class TodoStore {
         };
       },
     );
-    if (updated.status === "invalid") return invalidError(updated.error);
+    if (updated.status === "invalid") return invalidError(updated);
     return updated.result;
   }
 }

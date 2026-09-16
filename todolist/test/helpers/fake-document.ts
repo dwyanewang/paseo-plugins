@@ -1,4 +1,5 @@
-import type { PluginSettingsDecision, PluginSettingsDocument, PluginSettingsError } from "@getpaseo/plugin";
+import type { PluginSettingsDecision, PluginSettingsErrorCode } from "@getpaseo/plugin";
+import type { PluginSettings, PluginSettingsState } from "@getpaseo/plugin/server";
 import type { z, ZodType } from "zod";
 
 function deepFreeze<Value>(value: Value): Value {
@@ -19,10 +20,11 @@ function detached<Value>(value: Value): Value {
  * never writes, `commit` validates the whole next document, and every commit fires the change
  * callback once.
  */
-export class FakeSettingsDocument<Schema extends ZodType> implements PluginSettingsDocument<Schema> {
+export class FakeSettingsDocument<Schema extends ZodType> implements PluginSettings<Schema> {
   raw: string | null = null;
   changes = 0;
-  invalidError: PluginSettingsError | null = null;
+  invalidError: { code: PluginSettingsErrorCode; message: string } | null = null;
+  private readonly listeners = new Set<(state: PluginSettingsState<Schema>) => void | Promise<void>>();
   private queue: Promise<unknown> = Promise.resolve();
   private revisionCounter = 0;
 
@@ -42,14 +44,27 @@ export class FakeSettingsDocument<Schema extends ZodType> implements PluginSetti
     return this.raw === null ? "missing" : `rev-${this.revisionCounter}`;
   }
 
+  subscribe(listener: (state: PluginSettingsState<Schema>) => void | Promise<void>) {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
   read() {
     return this.serial(async () => {
       if (this.invalidError) {
-        return { status: "invalid" as const, revision: this.revision(), error: this.invalidError };
+        return {
+          status: "invalid" as const,
+          revision: this.revision(),
+          error: this.invalidError.message,
+          code: this.invalidError.code,
+        };
       }
       return {
         status: "ready" as const,
-        snapshot: { values: this.current(), revision: this.revision() },
+        values: this.current(),
+        revision: this.revision(),
       };
     });
   }
@@ -59,7 +74,12 @@ export class FakeSettingsDocument<Schema extends ZodType> implements PluginSetti
   ) {
     return this.serial(async () => {
       if (this.invalidError) {
-        return { status: "invalid" as const, revision: this.revision(), error: this.invalidError };
+        return {
+          status: "invalid" as const,
+          revision: this.revision(),
+          error: this.invalidError.message,
+          code: this.invalidError.code,
+        };
       }
       const values = this.current();
       let decision: PluginSettingsDecision<z.input<Schema>, Result>;
@@ -69,13 +89,15 @@ export class FakeSettingsDocument<Schema extends ZodType> implements PluginSetti
         return {
           status: "invalid" as const,
           revision: this.revision(),
-          error: { code: "mutator_threw" as const, message: "mutator threw" },
+          error: "mutator threw",
+          code: "mutator_threw" as const,
         };
       }
       if (decision.status === "unchanged") {
         return {
           status: "unchanged" as const,
-          snapshot: { values, revision: this.revision() },
+          values,
+          revision: this.revision(),
           result: decision.result,
         };
       }
@@ -84,15 +106,21 @@ export class FakeSettingsDocument<Schema extends ZodType> implements PluginSetti
         return {
           status: "invalid" as const,
           revision: this.revision(),
-          error: { code: "next_invalid" as const, message: "next invalid" },
+          error: "next invalid",
+          code: "next_invalid" as const,
         };
       }
       this.raw = JSON.stringify(parsed.data);
       this.revisionCounter += 1;
       this.changes += 1;
+      const next = parsed.data as z.output<Schema>;
+      for (const listener of this.listeners) {
+        void listener({ status: "ready", values: next, revision: this.revision() });
+      }
       return {
         status: "saved" as const,
-        snapshot: { values: parsed.data as z.output<Schema>, revision: this.revision() },
+        values: next,
+        revision: this.revision(),
         result: decision.result,
       };
     });

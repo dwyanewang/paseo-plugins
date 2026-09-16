@@ -20,8 +20,8 @@ export function assertHostCapabilities(server: Partial<PluginServerContext>): vo
 export default function contribute(server: PluginServerContext) {
   assertHostCapabilities(server);
   const document = server.registerSettings(todoData);
-  if (!document || typeof document.update !== "function") {
-    throw new Error("Todo requires registerSettings to return a settings document handle.");
+  if (!document || typeof document.read !== "function" || typeof document.update !== "function") {
+    throw new Error("Todo requires registerSettings to return a settings handle with update().");
   }
   // Launch preferences are client-owned; registering them only publishes the read/write RPCs.
   server.registerSettings(todoPrefs);
