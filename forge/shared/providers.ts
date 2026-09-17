@@ -10,8 +10,7 @@ export const definitions = {
     changeRequestNumberPrefix: "!",
     issueNumberPrefix: "#",
     signIn: null,
-    // Resolve configured hosts through probeHost. This allows the legacy Codeup
-    // plugin to remain installed without creating an ambiguous cloud-host match.
+    // No cloud hosts: probeHost only claims configured hosts that have a token.
   },
   gitee: {
     id: "forge-gitee",

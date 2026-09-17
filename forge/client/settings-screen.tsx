@@ -293,8 +293,7 @@ function Controls({
         </SettingsCard>
       ) : null}
       <Text style={{ color: theme.colors.foregroundMuted }}>
-        旧 Codeup 插件启用时，官方站点继续由旧插件处理。切换到此插件或修改 Git
-        域名后，需重新加载 Forge 插件以更新仓库识别。
+        保存设置或令牌后，需重新加载 Forge 插件以更新仓库识别。
       </Text>
     </View>
   );

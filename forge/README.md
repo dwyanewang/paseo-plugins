@@ -4,8 +4,6 @@
 所有平台请求直接使用 HTTP；没有 `aliyun`、`gh`、`glab` 等平台 CLI 依赖。
 本地 Git 仅用于读取工作区 `origin`，检出、推送和工作树仍由 Paseo 宿主管理。
 
-本插件位于 `forge/`，不导入、不修改旁边的 `codeup/` 插件。
-
 ## 宿主要求
 
 需要已构建的 `feat/plugin-host-infrastructure`，开发验证基于 `cb7765a3b`。
@@ -74,27 +72,13 @@ Region 站使用组织实例的访问域名，不能只切换版本而继续使�
 令牌绑定平台和完整 API 根地址；修改 API 地址后需要重新输入令牌。旧地址的令牌仍保留在
 宿主密钥存储中，可切回旧地址后移除。请求拒绝重定向，并对错误中的令牌值做脱敏。
 
+Codeup 不声明固定的云端域名：只有 remote 域名属于已配置的 Git 域名、且已保存令牌时才识别仓库。
 保存设置或令牌后，请重新加载插件，以立即刷新宿主的 Forge 识别缓存：
 
 ```bash
 paseo plugin reload forge
 paseo plugin ls
 ```
-
-### 与旧 Codeup 插件共存
-
-新提供者 ID 是 `forge-codeup` 和 `forge-gitee`，事实类型也各自独立。
-新 Codeup 提供者通过已配置且持有令牌的域名探测注册，不重复声明旧插件的云端域名。
-因此安装新插件不会改变旧 `codeup` 插件对官方站点的优先处理。
-
-真正切换 Codeup 到新插件时，才由使用者停用旧插件并重新加载新插件：
-
-```bash
-paseo plugin disable codeup
-paseo plugin reload forge
-```
-
-本次开发没有执行上述切换，也没有修改旧插件的源码、依赖或配置。
 
 ## 功能范围
 
