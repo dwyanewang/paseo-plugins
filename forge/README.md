@@ -7,6 +7,7 @@
 ## 宿主要求
 
 需要已构建的 `feat/plugin-host-infrastructure`，开发验证基于 `cb7765a3b`。
+该分支对应草稿 PR [getpaseo/paseo#4985](https://github.com/getpaseo/paseo/pull/4985)，尚未合并发布。
 虽然该分支版本仍为 `0.8.0`，公开发布的原版 `0.8.0` 并不包含全部接口。
 清单中的 `>=0.8.0` 是版本下限，还需要以下分支能力同时存在于 daemon 和 app：
 

@@ -6,8 +6,9 @@ daemon.
 
 Normative design: the hybrid design plan `paseo-todo-plugin-hybrid-plan.md`, kept outside this
 repository.
-Paseo baseline: `main@d7c7044dfc91d1d18721dc8757ac3bb913d8c232` plus the `feat/todo-plugin-hybrid`
-branch, which adds the two generic core extensions this plugin needs:
+Paseo host: [getpaseo/paseo#4985](https://github.com/getpaseo/paseo/pull/4985), a draft from the
+`feat/plugin-host-infrastructure` branch, which adds the two generic core extensions this plugin
+needs:
 
 1. `server.registerSettings(...)` returns a typed daemon-side document handle and
    `PluginServerContext.paseo` is available during contribution startup.
@@ -103,7 +104,7 @@ branch, which adds the two generic core extensions this plugin needs:
 ## Requirements
 
 `paseo-plugin.json` declares `>=0.8.0 <0.9.0`, matching the private `rw-main` deployment model used
-by local plugins such as Codeup. Semver identifies the compatible Paseo series; it does not prove
+by these local plugins. Semver identifies the compatible Paseo series; it does not prove
 that a particular branch contains this plugin's host extensions. The server therefore verifies
 `server.paseo` and the Settings document handle at startup, while the client checks
 `openAgentLaunch` before offering the composer hand-off — a build without it still runs agents
@@ -127,9 +128,9 @@ the same `>=0.8.0 <0.9.0` manifest used by the private `rw-main` deployment.
 
 ## Deploy
 
-Requires the Todo host extensions to be integrated into the daemon and app build (for example by
-merging `feat/todo-plugin-hybrid` into `rw-main`) and `pluginsEnabled: true` in the daemon's
-`config.json`. No upstream version bump is required. Then:
+Requires a daemon and app built from `feat/plugin-host-infrastructure`
+([getpaseo/paseo#4985](https://github.com/getpaseo/paseo/pull/4985)) and `pluginsEnabled: true` in
+the daemon's `config.json`. No upstream version bump is required. Then:
 
 ```bash
 npm run typecheck
