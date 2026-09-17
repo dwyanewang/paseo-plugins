@@ -80,6 +80,36 @@ describe("HTTP connections", () => {
     const h = harness("codeup", () => new Response("<html>Login</html>"));
     await expect(authenticate("codeup", h.deps)).rejects.toThrow("valid JSON");
   });
+  it("explains Codeup user-info permission failures without hiding the API error", async () => {
+    const h = harness("codeup", () => new Response(JSON.stringify({
+      errorCode: "Forbidden",
+      errorMessage: "Current token has no permission to api.",
+    }), { status: 403 }));
+    await expect(authenticate("codeup", h.deps)).rejects.toMatchObject({
+      kind: "auth-failure",
+      message: expect.stringContaining("Forbidden: Current token has no permission to api."),
+    });
+    await expect(authenticate("codeup", h.deps)).rejects.toThrow("组织管理");
+  });
+  it("redacts token echoes in structured auth messages and omits other fields", async () => {
+    const h = harness("gitee", () => new Response(JSON.stringify({
+      message: "Denied test-private-token",
+      debug: "internal-only-details",
+    }), { status: 403 }));
+    await expect(authenticate("gitee", h.deps)).rejects.toMatchObject({
+      message: "Gitee rejected the request (HTTP 403) — Denied <redacted>",
+      stderr: expect.not.stringContaining("test-private-token"),
+    });
+  });
+  it.each(["<html>Forbidden</html>", "null", "[]", "{broken"])(
+    "keeps the HTTP status for unstructured auth errors: %s",
+    async (body) => {
+      const h = harness("codeup", () => new Response(body, { status: 403 }));
+      await expect(authenticate("codeup", h.deps)).rejects.toMatchObject({
+        message: "Codeup rejected the request (HTTP 403)",
+      });
+    },
+  );
   it("validates settings without client DOM globals and rejects unsafe URLs and host overlap", () => {
     expect(ForgeSettingsSchema.parse({}).codeup.edition).toBe("central");
     for (const apiBaseUrl of [

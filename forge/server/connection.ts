@@ -118,9 +118,29 @@ export async function connect(
         : text
       ).slice(0, 2000);
     if (error instanceof ForgeAuthenticationError) {
-      throw new ForgeAuthenticationError(clean(error.message), {
-        stderr: clean(error.stderr),
-      });
+      // The toolkit keeps the platform's explanation in stderr. Surface only
+      // known JSON error fields, never an HTML response or a credential echo.
+      let detail = "";
+      try {
+        const data: unknown = JSON.parse(error.stderr);
+        if (data && typeof data === "object" && !Array.isArray(data)) {
+          const fields = data as Record<string, unknown>;
+          detail = [
+            fields.errorCode ?? fields.code,
+            fields.errorMessage ?? fields.message ?? fields.error_description,
+          ]
+            .filter((value): value is string => typeof value === "string")
+            .map((value) => clean(value).replace(/[\r\n\t]+/g, " ").slice(0, 500))
+            .filter(Boolean)
+            .join(": ");
+        }
+      } catch {
+        // Keep the HTTP status when the response is not a structured API error.
+      }
+      throw new ForgeAuthenticationError(
+        clean(`${error.message}${detail ? ` — ${detail}` : ""}`),
+        { stderr: clean(error.stderr) },
+      );
     }
     if (error instanceof ForgeCommandError) {
       const safe = new ForgeCommandError(
@@ -217,10 +237,24 @@ export async function authenticate(
   cwd = "",
 ): Promise<boolean> {
   const { http } = await connect(platform, deps);
-  await http.request({
-    cwd,
-    path: platform === "codeup" ? "/oapi/v1/platform/user" : "/user",
-    schema: z.object({ id: z.union([z.string().min(1), z.number()]) }),
-  });
+  try {
+    await http.request({
+      cwd,
+      path: platform === "codeup" ? "/oapi/v1/platform/user" : "/user",
+      schema: z.object({ id: z.union([z.string().min(1), z.number()]) }),
+    });
+  } catch (error) {
+    if (
+      platform === "codeup" &&
+      error instanceof ForgeAuthenticationError &&
+      error.stderr.includes("Current token has no permission to api.")
+    ) {
+      throw new ForgeAuthenticationError(
+        `${error.message}；当前令牌缺少“获取当前用户信息”接口（GET /oapi/v1/platform/user）的权限。请在云效个人访问令牌的“组织管理”中补充该接口的读取权限；仅有代码仓库权限不足以通过此测试。`,
+        { stderr: error.stderr },
+      );
+    }
+    throw error;
+  }
   return true;
 }
