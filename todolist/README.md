@@ -1,6 +1,6 @@
 # Paseo Todo plugin
 
-Host-local work items that launch Paseo agents — started directly from Todo, or handed to the
+Host-local work items that launch [Paseo](https://paseo.sh/) agents — started directly from Todo, or handed to the
 native composer — and track every attempt, claim, and linked agent across all clients of one
 daemon.
 

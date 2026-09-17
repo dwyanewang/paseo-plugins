@@ -1,6 +1,7 @@
 # Paseo local plugins
 
-Trusted local plugins loaded by the Paseo daemon straight from this directory
+Plugins for [Paseo](https://paseo.sh/). They run only inside Paseo, as trusted local plugins that
+the Paseo daemon loads straight from this directory
 (`~/.paseo/config.json` → `plugins.<id> = { source: "directory", path: … }`). Nothing is copied
 into `~/.paseo`, so editing here plus a plugin reload is the whole deploy step.
 

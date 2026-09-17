@@ -1,6 +1,6 @@
 # Forge HTTP 插件
 
-在一个 Paseo 插件内，通过个人访问令牌连接 **Codeup OpenAPI** 和 **Gitee API v5**。
+在一个 [Paseo](https://paseo.sh/) 插件内，通过个人访问令牌连接 **Codeup OpenAPI** 和 **Gitee API v5**。
 所有平台请求直接使用 HTTP；没有 `aliyun`、`gh`、`glab` 等平台 CLI 依赖。
 本地 Git 仅用于读取工作区 `origin`，检出、推送和工作树仍由 Paseo 宿主管理。
 
