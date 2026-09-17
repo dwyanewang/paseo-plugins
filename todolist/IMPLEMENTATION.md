@@ -1,7 +1,7 @@
 # Todo hybrid implementation checklist
 
-Normative source: `/home/yangfei/Private/Dw-Plans/paseo-todo-plugin-hybrid-plan.md`
-(SHA-256 `6a9e374891c3584710e6ee82debddee50a40dce595360b7b18f332a83b6ba155`, 1280 lines)
+Normative source: the hybrid design plan `paseo-todo-plugin-hybrid-plan.md`, kept outside this
+repository (SHA-256 `6a9e374891c3584710e6ee82debddee50a40dce595360b7b18f332a83b6ba155`, 1280 lines)
 Paseo baseline: `main@d7c7044dfc91d1d18721dc8757ac3bb913d8c232`
 Implementation branch: `feat/todo-plugin-hybrid`, merged into `rw-main` (`ea8794802`, 2026-09-12)
 
@@ -107,8 +107,8 @@ now gates the composer hand-off alone.
 
 ## Phase H — board view (merged 2026-09-15)
 
-Normative source: `/home/yangfei/Private/Dw-Plans/paseo-todo-kanban-plan.md`. Built on
-`feat/todo-kanban`, fast-forwarded into `main` at `4161b0e`.
+Normative source: the board design plan `paseo-todo-kanban-plan.md`, kept outside this
+repository. Built on `feat/todo-kanban`, fast-forwarded into `main` at `4161b0e`.
 
 - [x] Stage 1, data and rules:
   - `todo-data` version 2 with six statuses, `number`, `statusChangedAt`, `statusReason` and
@@ -220,8 +220,7 @@ Normative source: `/home/yangfei/Private/Dw-Plans/paseo-todo-kanban-plan.md`. Bu
 
 ## Phase I — all projects, priority, column actions (2026-09-15)
 
-Decided after the first live use of the board. Plan addendum: "第二轮调整" in
-`/home/yangfei/Private/Dw-Plans/paseo-todo-kanban-plan.md`.
+Decided after the first live use of the board. Plan addendum: "第二轮调整" in the board design plan.
 
 - [x] The global board shows every project by default. A "Project" chip filters it to one project
       (options show open counts), the choice is saved as `boardProjectId` (`""` = all projects),
@@ -259,8 +258,7 @@ That pass moved the project name to its own card line and fixed the column heade
 
 ## Phase J — worktree runs, full-height board, visual pass (2026-09-15)
 
-Requested after using the Phase I board. Plan addendum: "第三轮调整" in
-`/home/yangfei/Private/Dw-Plans/paseo-todo-kanban-plan.md`.
+Requested after using the Phase I board. Plan addendum: "第三轮调整" in the board design plan.
 
 - [x] Direct run can cut a new worktree (git projects only):
   - `RunTarget` is an existing workspace or `new_worktree` with a branch and an optional base;

@@ -4,7 +4,8 @@ Host-local work items that launch Paseo agents — started directly from Todo, o
 native composer — and track every attempt, claim, and linked agent across all clients of one
 daemon.
 
-Normative design: `/home/yangfei/Private/Dw-Plans/paseo-todo-plugin-hybrid-plan.md`.
+Normative design: the hybrid design plan `paseo-todo-plugin-hybrid-plan.md`, kept outside this
+repository.
 Paseo baseline: `main@d7c7044dfc91d1d18721dc8757ac3bb913d8c232` plus the `feat/todo-plugin-hybrid`
 branch, which adds the two generic core extensions this plugin needs:
 
@@ -132,7 +133,7 @@ merging `feat/todo-plugin-hybrid` into `rw-main`) and `pluginsEnabled: true` in 
 
 ```bash
 npm run typecheck
-paseo plugin install /home/yangfei/Projects/paseo-plugins/todolist
+paseo plugin install /absolute/path/to/paseo-plugins/todolist
 paseo plugin ls
 paseo plugin logs todo
 ```
