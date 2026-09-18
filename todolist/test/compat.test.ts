@@ -10,26 +10,30 @@ const manifest = JSON.parse(
 ) as { id: string; requirements: { paseo: string } };
 
 describe("manifest gates", () => {
-  it("admits private 0.8.x host builds and keeps the 0.9 upper bound", () => {
+  it("admits private host builds from 0.8.0 on, with no upper bound", () => {
     expect(manifest.id).toBe("todo");
-    expect(manifest.requirements.paseo).toBe(">=0.8.0 <0.9.0");
+    expect(manifest.requirements.paseo).toBe(">=0.8.0");
   });
 
-  it("app gate accepts 0.8.x builds and rejects versions outside the supported series", () => {
+  it("app gate accepts 0.8.0 and later, including prereleases, and rejects older builds", () => {
     const check = (version: string, runtime: "app" | "daemon") =>
       assertPluginCompatibility({ id: manifest.id, requirements: manifest.requirements, version, runtime });
     expect(() => check("0.7.9", "app")).toThrow("Your app is 0.7.9");
     expect(() => check("0.8.0", "app")).not.toThrow();
     expect(() => check("0.8.2-beta.1", "app")).not.toThrow();
-    expect(() => check("0.9.0", "app")).toThrow("Your app is 0.9.0");
+    expect(() => check("0.9.0-beta.1", "app")).not.toThrow();
+    expect(() => check("0.9.0", "app")).not.toThrow();
   });
 
-  it("daemon gate accepts 0.8.x builds and leaves branch capabilities to runtime guards", () => {
+  it("daemon gate accepts 0.8.0 and later and leaves branch capabilities to runtime guards", () => {
     expect(() =>
       assertPluginCompatibility({ id: manifest.id, requirements: manifest.requirements, version: "0.7.9", runtime: "daemon" }),
     ).toThrow("Your daemon is 0.7.9");
     expect(() =>
       assertPluginCompatibility({ id: manifest.id, requirements: manifest.requirements, version: "0.8.0", runtime: "daemon" }),
+    ).not.toThrow();
+    expect(() =>
+      assertPluginCompatibility({ id: manifest.id, requirements: manifest.requirements, version: "0.9.0-beta.1", runtime: "daemon" }),
     ).not.toThrow();
   });
 });

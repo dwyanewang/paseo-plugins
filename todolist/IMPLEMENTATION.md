@@ -28,7 +28,7 @@ Implementation branch: `feat/todo-plugin-hybrid`, merged into `rw-main` (`ea8794
 
 ## Phase C — Todo server and data
 
-- [x] Plugin scaffold, private-host manifest (`>=0.8.0 <0.9.0`), runtime capability guards, schema and RPC contracts
+- [x] Plugin scaffold, private-host manifest (`>=0.8.0`), runtime capability guards, schema and RPC contracts
 - [x] Canonical document mutations, incarnation fencing, versions, fingerprints and capacity rules
 - [x] Claim acquire, progress lattice, abandon/check and status aggregation
 - [x] Reconciliation: single subscribe, scans, refresh, watermark, dirty rerun, bounded timeline search

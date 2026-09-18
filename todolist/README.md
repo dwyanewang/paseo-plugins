@@ -103,14 +103,13 @@ needs:
 
 ## Requirements
 
-`paseo-plugin.json` declares `>=0.8.0 <0.9.0`, matching the private `rw-main` deployment model used
-by these local plugins. Semver identifies the compatible Paseo series; it does not prove
-that a particular branch contains this plugin's host extensions. The server therefore verifies
-`server.paseo` and the Settings document handle at startup, while the client checks
+`paseo-plugin.json` declares `>=0.8.0`, a lower bound only, so the private `rw-main` deployment
+keeps loading the plugin as it moves to newer Paseo versions (it is `0.9.0-beta.1` now). Semver
+does not prove that a particular build contains this plugin's host extensions. The server therefore
+verifies `server.paseo` and the Settings document handle at startup, while the client checks
 `openAgentLaunch` before offering the composer hand-off — a build without it still runs agents
-directly. A stock or partial 0.8.x build fails those capability
-guards with a clear upgrade/build message instead of pretending that an upstream patch release is
-required.
+directly. A stock or partial build fails those capability guards with a clear upgrade/build message
+instead of pretending that an upstream patch release is required.
 
 ## Develop
 
@@ -124,7 +123,7 @@ npm run audit:client         # DOM/CSS leakage audit for client/
 
 `node_modules` links to the sibling Paseo checkout (`../../paseo`) so SDK and protocol types match
 the local commit. The E2E test copies this directory to a temporary location and installs it with
-the same `>=0.8.0 <0.9.0` manifest used by the private `rw-main` deployment.
+the same `>=0.8.0` manifest used by the private `rw-main` deployment.
 
 ## Deploy
 
