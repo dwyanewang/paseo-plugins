@@ -305,15 +305,15 @@ function DetailBody(props: {
         )}
       </Section>
 
-      <Section styles={styles} title="Default prompt">
-        {item.defaultPrompt ? (
+      {/* Only cards from before the one-box editor still carry a prompt of their own. */}
+      {item.defaultPrompt ? (
+        <Section styles={styles} title="Custom prompt">
           <Text style={styles.code} numberOfLines={12} selectable>
             {item.defaultPrompt}
           </Text>
-        ) : (
-          <Text style={styles.muted}>Empty. Executing starts from the title and details.</Text>
-        )}
-      </Section>
+          <Text style={styles.muted}>This runs instead of the title and details.</Text>
+        </Section>
+      ) : null}
 
       {view.attempts.length > 0 ? (
         <Section

@@ -30,6 +30,7 @@ import { sendFollowUp } from "./follow-up";
 import { openForAttempt } from "./launch";
 import { resolveLaunchCapability } from "./launch-guard";
 import { MoveMenu } from "./move-menu";
+import { usePendingNewItem } from "./pending-new";
 import { useProjectCache } from "./projects";
 import { resolveDraftIdentity, type DraftIdentity } from "./identity";
 import { RecoveryScreen } from "./recovery";
@@ -406,6 +407,9 @@ function TodoReady(props: {
     }
     return launcher.launch(item, input);
   }
+
+  // "New todo…" and an empty /todo open the surface; the editor is what they actually asked for.
+  usePendingNewItem(useCallback(() => setEditor({ open: true, view: null, status: "todo" }), []));
 
   function openEditor(next: StartingStatus) {
     if (!canCreate) {

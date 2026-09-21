@@ -1,4 +1,5 @@
 import type { PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
+import { addTodoCommands } from "./client/commands";
 import { TodoHeaderIcon, TodoHeaderPanel } from "./client/header-button";
 import { TodoPanel } from "./client/panel";
 import { registerSidebarBadgeSetter } from "./client/sidebar-badge";
@@ -93,9 +94,11 @@ export default function contribute(client: PluginClientContext) {
       openPanel("todo");
     },
   });
+  const stopCommands = addTodoCommands(client);
   const stopWorkspaceButtons = trackWorkspaceButtons(client);
   registerSidebarBadgeSetter((count) => client.setSidebarBadge?.("todo", count));
   return () => {
+    stopCommands();
     stopWorkspaceButtons();
     registerSidebarBadgeSetter(null);
   };

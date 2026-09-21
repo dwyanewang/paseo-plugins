@@ -80,6 +80,8 @@ export const TEXT = {
     "This item has attempts whose outcome is unknown. After a forced purge, late workspaces or agents from those attempts will no longer be linked here.",
   offlineJournalNotice:
     "Launch drafts live on the device that started them. Another device can check status and open known agents, but cannot take over the draft.",
+  customPromptNotice:
+    "This item still has a saved prompt from an older version, which runs instead of the text above. Clear it in the execute dialog to go back to sending the title and details.",
   seedNotice:
     "The prompt starts from the saved default, or from the Todo title and details when no default is set. Whatever you finally submit in the composer is not copied back into Todo.",
   runNotice:

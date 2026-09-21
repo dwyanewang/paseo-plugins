@@ -1,15 +1,24 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Modal } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useState } from "react";
-import { Text } from "react-native";
+import { Text, View } from "react-native";
 import { validateWorkItemFields } from "../shared/limits";
 import { WORK_ITEM_PRIORITIES, type WorkItem, type WorkItemPriority } from "../shared/schema";
 import { WORK_ITEM_PRIORITY_LABELS, WORK_ITEM_STATUS_LABELS } from "../shared/board";
 import { Button, DialogActions, Field, Notice, Select } from "./components";
+import { parseQuickAdd, priorityTokenFor } from "./quick-add";
 import { InfoRow, RowGroup, SelectRow } from "./select-row";
 import type { ProjectRecord } from "./projects";
 import type { TodoStyles } from "./styles";
 import { PRIORITY_PRESENTATION, STATUS_PRESENTATION, TEXT } from "./text";
+
+/** The card as one block of text: the title, then whatever detail it already carries. */
+function composeText(item: WorkItem | null): string {
+  if (!item) return "";
+  const token = priorityTokenFor(item.priority);
+  const title = token ? `${item.title} ${token}` : item.title;
+  return item.details ? `${title}\n${item.details}` : title;
+}
 
 /** New work starts in one of these; later columns are reached by moving the card. */
 export type StartingStatus = "backlog" | "todo";
@@ -41,22 +50,23 @@ export function WorkItemEditor(props: {
   onSubmit: (input: EditorSubmit) => Promise<boolean>;
 }) {
   const { styles, theme, item } = props;
-  const [title, setTitle] = useState(item?.title ?? "");
-  const [details, setDetails] = useState(item?.details ?? "");
-  const [defaultPrompt, setDefaultPrompt] = useState(item?.defaultPrompt ?? "");
+  const [text, setText] = useState(() => composeText(item));
   const [projectId, setProjectId] = useState<string | null>(item?.projectId ?? props.initialProjectId);
   const [status, setStatus] = useState<StartingStatus>(props.initialStatus);
+  // A token in the text wins; otherwise the choice stands, so the row stays usable on its own.
   const [priority, setPriority] = useState<WorkItemPriority>(item?.priority ?? "none");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (!props.open) return;
-    setTitle(item?.title ?? "");
-    setDetails(item?.details ?? "");
-    setDefaultPrompt(item?.defaultPrompt ?? "");
+    setText(composeText(item));
     setProjectId(item?.projectId ?? props.initialProjectId);
     setStatus(props.initialStatus);
     setPriority(item?.priority ?? "none");
   }, [props.open, item, props.initialProjectId, props.initialStatus]);
+  const draft = parseQuickAdd(text);
+  const { title, details } = draft;
+  const defaultPrompt = item?.defaultPrompt ?? "";
+  const effectivePriority = draft.priorityToken ? draft.priority : priority;
   const invalid = validateWorkItemFields({ title, details, defaultPrompt });
   const options = useMemo(
     () =>
@@ -80,7 +90,7 @@ export function WorkItemEditor(props: {
         details,
         defaultPrompt,
         status,
-        priority,
+        priority: effectivePriority,
         execute,
       });
       if (ok) props.onOpenChange(false);
@@ -90,11 +100,32 @@ export function WorkItemEditor(props: {
   }
 
   return (
-    <Modal title={item ? "Edit work item" : "New work item"} open={props.open} onOpenChange={props.onOpenChange}>
+    <Modal title={item ? `Edit #${item.number}` : "New todo"} open={props.open} onOpenChange={props.onOpenChange}>
       <Modal.Content>
-        <Field styles={styles} theme={theme} label="Title" value={title} onChangeText={setTitle} placeholder="What needs to happen" autoFocus={!item} />
-        <Field styles={styles} theme={theme} label="Details" value={details} onChangeText={setDetails} multiline placeholder="Notes for you (not sent to the agent unless you put them in the prompt)" />
-        <Field styles={styles} theme={theme} label="Default prompt" value={defaultPrompt} onChangeText={setDefaultPrompt} multiline placeholder="Seed prompt used when you execute this item" />
+        <Field
+          styles={styles}
+          theme={theme}
+          label={item ? "Content" : "What needs to happen"}
+          value={text}
+          onChangeText={setText}
+          multiline
+          autoFocus={!item}
+          placeholder={"Cursor-paginate the device list !2\nThe offset pages get slow past a few thousand rows."}
+          hint="The first line is the title, the rest is detail. Running the item sends all of it."
+        />
+        {title ? (
+          <View style={[styles.row, { gap: 8 }]}>
+            <Text style={styles.fieldLabel}>Title</Text>
+            <Text numberOfLines={1} style={[styles.body, { flex: 1, fontWeight: "600" }]}>
+              {title}
+            </Text>
+          </View>
+        ) : null}
+        {defaultPrompt ? (
+          <Notice styles={styles} theme={theme}>
+            {TEXT.customPromptNotice}
+          </Notice>
+        ) : null}
         <RowGroup styles={styles}>
           {item ? (
             <InfoRow styles={styles} label="Project">
@@ -123,8 +154,8 @@ export function WorkItemEditor(props: {
           <SelectRow
             styles={styles}
             theme={theme}
-            label="Priority"
-            value={priority}
+            label={draft.priorityToken ? `Priority (${draft.priorityToken})` : "Priority"}
+            value={effectivePriority}
             options={WORK_ITEM_PRIORITIES.map((entry) => ({
               value: entry,
               label: WORK_ITEM_PRIORITY_LABELS[entry],
@@ -135,10 +166,9 @@ export function WorkItemEditor(props: {
           />
         </RowGroup>
         {item ? <Text style={styles.mono}>Use Rebind project in the card detail to move it to another project.</Text> : null}
-        {invalid ? (
+        {invalid && invalid.reason !== "empty" ? (
           <Notice styles={styles} theme={theme} kind="warning">{`${invalid.field} is ${invalid.reason.replace("_", " ")}.`}</Notice>
         ) : null}
-        {!item ? <Text style={styles.mono}>{TEXT.seedNotice}</Text> : null}
         <DialogActions styles={styles}>
           <Button styles={styles} theme={theme} label="Cancel" onPress={() => props.onOpenChange(false)} />
           {!item ? (

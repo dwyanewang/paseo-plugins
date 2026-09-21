@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildWorkItemViews } from "../client/data";
-import { parseQuickAdd } from "../client/quick-add";
+import { parseQuickAdd, priorityTokenFor } from "../client/quick-add";
 import { buildPanelContents, needsYou, summarizeProject } from "../client/summary";
 import { moveWorkItemMutation } from "../server/mutations";
 import type { TodoDocument, WorkItemStatus } from "../shared/schema";
@@ -77,5 +77,14 @@ describe("panel contents", () => {
     const contents = buildPanelContents(buildWorkItemViews(document).values(), "project-1");
     expect(contents.groups[0]).toMatchObject({ status: "todo", overflow: 2 });
     expect(contents.groups[0]?.views).toHaveLength(5);
+  });
+});
+
+describe("priority token round trip", () => {
+  it("writes the token back so editing a card shows how its priority was set", () => {
+    expect(priorityTokenFor("urgent")).toBe("!1");
+    expect(priorityTokenFor("low")).toBe("!4");
+    expect(priorityTokenFor("none")).toBeNull();
+    expect(parseQuickAdd(`Ship it ${priorityTokenFor("high")}`)).toMatchObject({ title: "Ship it", priority: "high" });
   });
 });
