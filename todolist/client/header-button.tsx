@@ -1,17 +1,22 @@
 import type { PluginButtonContentProps, PluginButtonIconProps } from "@getpaseo/plugin/client";
-import { useWorkspace } from "@getpaseo/plugin/client";
+import { usePaseo, useWorkspace } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { WORK_ITEM_STATUS_LABELS } from "../shared/board";
 import type { WorkItemStatus } from "../shared/schema";
+import { Button } from "./components";
 import { useTodoDocument, useWorkItemViews, type WorkItemView } from "./data";
+import { ExecuteModal, type ExecuteSubmit } from "./execute-modal";
 import { resolveDraftIdentity, type DraftIdentity } from "./identity";
+import { resolveLaunchCapability } from "./launch-guard";
+import { useProjectCache } from "./projects";
 import { parseQuickAdd } from "./quick-add";
 import { useSidebarBadge } from "./sidebar-badge";
 import { buildPanelContents, needsYou, summarizeProject } from "./summary";
 import { useTodoStyles, type TodoStyles } from "./styles";
 import { AGGREGATE_PRESENTATION, PRIORITY_PRESENTATION, STATUS_PRESENTATION } from "./text";
+import { initiatorLabel, useLaunchWorkItem } from "./use-launch";
 import { useTodoActions } from "./use-todo-actions";
 
 /** The project a workspace belongs to; every panel is that project's, never the whole host. */
@@ -101,25 +106,37 @@ function PanelRow(props: {
   theme: PluginButtonContentProps["theme"];
   view: WorkItemView;
   onPress: () => void;
+  onRun?: (() => void) | undefined;
 }) {
   const { styles, theme, view } = props;
   const priority = PRIORITY_PRESENTATION[view.item.priority];
   const aggregate = AGGREGATE_PRESENTATION[view.aggregate.state];
   return (
-    <Pressable onPress={props.onPress} accessibilityRole="button" style={styles.listRow}>
-      <Icon name={priority.icon} size={14} color={theme.colors[priority.color]} />
-      <Text style={[styles.metaText, { minWidth: 28 }]}>{`#${view.item.number}`}</Text>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Text numberOfLines={1} style={styles.body}>
-          {view.item.title}
-        </Text>
-        {view.aggregate.state === "idle" ? null : (
-          <Text numberOfLines={1} style={styles.metaText}>
-            {aggregate.label}
+    // The row is not itself a button: it holds one, and a button inside a button is invalid HTML.
+    <View style={[styles.listRow, { gap: 8 }]}>
+      <Pressable
+        onPress={props.onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`#${view.item.number} ${view.item.title}`}
+        style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 8 }}
+      >
+        <Icon name={priority.icon} size={14} color={theme.colors[priority.color]} />
+        <Text style={[styles.metaText, { minWidth: 24 }]}>{`#${view.item.number}`}</Text>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text numberOfLines={1} style={styles.body}>
+            {view.item.title}
           </Text>
-        )}
-      </View>
-    </Pressable>
+          {view.aggregate.state === "idle" ? null : (
+            <Text numberOfLines={1} style={styles.metaText}>
+              {aggregate.label}
+            </Text>
+          )}
+        </View>
+      </Pressable>
+      {props.onRun ? (
+        <Button styles={styles} theme={theme} label="Run" icon="Play" variant="primary" onPress={props.onRun} />
+      ) : null}
+    </View>
   );
 }
 
@@ -141,7 +158,20 @@ export function TodoHeaderPanel(props: PluginButtonContentProps) {
   const reload = state.reload;
   const actions = useTodoActions({ incarnationId, reload });
   const [busy, setBusy] = useState(false);
+  const [execute, setExecute] = useState<WorkItemView | null>(null);
   const draft = useRef<DraftIdentity | null>(null);
+  const paseo = usePaseo();
+  const projectCache = useProjectCache(paseo);
+  const capability = resolveLaunchCapability(props.navigation);
+  const launcher = useLaunchWorkItem({
+    paseo,
+    actions,
+    incarnationId,
+    reload,
+    initiatorLabel: initiatorLabel(props.layout.platform, props.host.label),
+    capability,
+    openAgent: props.navigation?.openAgent,
+  });
   const contents = useMemo(
     () => buildPanelContents(views.values(), project?.projectId ?? null),
     [views, project?.projectId],
@@ -211,7 +241,14 @@ export function TodoHeaderPanel(props: PluginButtonContentProps) {
           <View key={group.status} style={{ paddingTop: 4 }}>
             <GroupHeader styles={styles} theme={theme} status={group.status} count={group.views.length + group.overflow} />
             {group.views.map((view) => (
-              <PanelRow key={view.item.id} styles={styles} theme={theme} view={view} onPress={() => openAgent(view)} />
+              <PanelRow
+                key={view.item.id}
+                styles={styles}
+                theme={theme}
+                view={view}
+                onPress={() => openAgent(view)}
+                onRun={group.status === "todo" ? () => setExecute(view) : undefined}
+              />
             ))}
             {group.overflow > 0 ? (
               <Text style={[styles.metaText, { paddingHorizontal: 12, paddingBottom: 4 }]}>{`+${group.overflow} more on the board`}</Text>
@@ -222,6 +259,23 @@ export function TodoHeaderPanel(props: PluginButtonContentProps) {
       {contents.backlogCount > 0 ? (
         <Text style={[styles.metaText, { paddingHorizontal: 12 }]}>{`${contents.backlogCount} in Backlog`}</Text>
       ) : null}
+      <ExecuteModal
+        styles={styles}
+        theme={theme}
+        open={execute !== null}
+        onOpenChange={(open) => !open && setExecute(null)}
+        item={execute?.item ?? null}
+        project={execute ? projectCache.projects.get(execute.item.projectId) : undefined}
+        defaultWorkspaceId={props.workspaceId}
+        canOpenComposer={capability.available}
+        onSubmit={async (input: ExecuteSubmit) => {
+          if (!execute) return false;
+          const started = await launcher.launch(execute.item, input);
+          // A direct run navigates to its agent, so the panel must not stay open on top of it.
+          if (started) props.close();
+          return started;
+        }}
+      />
     </View>
   );
 }

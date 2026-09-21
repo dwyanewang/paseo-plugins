@@ -27,7 +27,7 @@ import { ContinueModal, type StartRequest } from "./continue-modal";
 import { useTodoDocument, useWorkItemViews, type WorkItemView } from "./data";
 import { ExecuteModal, type ExecuteSubmit } from "./execute-modal";
 import { sendFollowUp } from "./follow-up";
-import { executeWorkItem, openForAttempt, type ExecuteResult } from "./launch";
+import { openForAttempt } from "./launch";
 import { resolveLaunchCapability } from "./launch-guard";
 import { MoveMenu } from "./move-menu";
 import { useProjectCache } from "./projects";
@@ -35,18 +35,13 @@ import { resolveDraftIdentity, type DraftIdentity } from "./identity";
 import { RecoveryScreen } from "./recovery";
 import { useSidebarBadge } from "./sidebar-badge";
 import { needsYou } from "./summary";
-import { runWorkItemNow } from "./run";
 import { useTodoStyles } from "./styles";
 import { TEXT } from "./text";
+import { initiatorLabel, useLaunchWorkItem } from "./use-launch";
 import { useTodoActions } from "./use-todo-actions";
 import { RebindModal, WorkItemEditor, type StartingStatus } from "./work-item-editor";
 
 type Navigation = PluginSurfaceProps["navigation"];
-
-function initiatorLabel(platform: string, hostLabel: string): string {
-  const device = platform === "ios" ? "iPhone/iPad" : platform === "android" ? "Android" : "Desktop/Web";
-  return `${device} · ${hostLabel}`.slice(0, 80);
-}
 
 /** Re-renders on an interval so relative times ("5 min ago") stay current. */
 function useNow(intervalMs: number): number {
@@ -121,6 +116,15 @@ function TodoReady(props: {
   useSidebarBadge(useMemo(() => [...views.values()].filter(needsYou).length, [views]));
   const actions = useTodoActions({ incarnationId: todo.incarnationId, reload });
   const capability = resolveLaunchCapability(props.navigation);
+  const launcher = useLaunchWorkItem({
+    paseo,
+    actions,
+    incarnationId: todo.incarnationId,
+    reload,
+    initiatorLabel: initiatorLabel(props.platform, props.host.label),
+    capability,
+    openAgent: props.navigation?.openAgent,
+  });
   const status = useRpc(documentStatus);
   const health = useQuery({ queryKey: ["todo", "status", props.host.id], queryFn: () => status({}), refetchInterval: 60_000 });
   const [filter, setFilter] = useState<BoardFilter>("active");
@@ -264,30 +268,6 @@ function TodoReady(props: {
     if (moved > 0) toast.show(`Marked ${moved} ${moved === 1 ? "card" : "cards"} ${WORK_ITEM_STATUS_LABELS[target]}.`, { variant: "success" });
   }
 
-  const handleLaunchResult = useCallback(
-    (result: ExecuteResult) => {
-      if (result.status === "error") return false;
-      if (result.status === "rejected") {
-        const code = result.open.code;
-        toast.error(
-          code === "wrong_device"
-            ? "This launch draft belongs to another device. Check status or abandon it there."
-            : code === "journal_invalid"
-              ? "The local launch journal is invalid. Clear it from the workspace draft before retrying."
-              : code === "launch_key_conflict"
-                ? "This launch identity was already used with different inputs."
-                : result.open.message,
-        );
-        return false;
-      }
-      if (result.status === "completed") {
-        toast.show(result.open.terminalOutcome === "agent_known" ? "This launch already created an agent." : "This launch was discarded.", { variant: "info" });
-      }
-      return true;
-    },
-    [toast],
-  );
-
   const runCheck = useCallback(
     async (view: WorkItemView) => {
       setChecking(view.item.id);
@@ -336,7 +316,7 @@ function TodoReady(props: {
           openAgentLaunch: capability.openAgentLaunch,
           onChange: () => void reload(),
           ...(attempt.initiatorClientInstanceId ? { expectedClientInstanceId: attempt.initiatorClientInstanceId } : {}),
-        }).then(handleLaunchResult);
+        }).then(launcher.describeResult);
       },
       abandon: (view, attempt: Attempt, certainty) => {
         // The attempt's own claim generation, so history entries stay actionable after a newer
@@ -381,7 +361,7 @@ function TodoReady(props: {
       openWorkspace: props.navigation ? (workspaceId) => props.navigation?.openWorkspace({ workspaceId }) : null,
       checkingId: checking,
     }),
-    [actions, capability, checking, todo.incarnationId, handleLaunchResult, requestMove, props.navigation, reload, runCheck],
+    [actions, capability, checking, todo.incarnationId, launcher, requestMove, props.navigation, reload, runCheck],
   );
 
   // The detail dialog closes before anything that opens another dialog or leaves the board, so
@@ -424,48 +404,7 @@ function TodoReady(props: {
       if (!moved) return false;
       item = { ...item, status: "in_progress" };
     }
-    if (input.updateDefaultPrompt) {
-      const ok = await actions.update(item, { defaultPrompt: input.seedPrompt });
-      if (!ok) return false;
-      item = { ...item, defaultPrompt: input.seedPrompt, version: item.version + 1 };
-    }
-    const shared = {
-      item,
-      incarnationId: todo.incarnationId,
-      seedPrompt: input.seedPrompt,
-      seedPromptSource: input.seedPromptSource,
-      initiatorLabel: initiatorLabel(props.platform, props.host.label),
-      rpcs: actions.launchRpcs,
-      onChange: () => void reload(),
-    };
-    if (input.mode === "run") {
-      const result = await runWorkItemNow({ ...shared, paseo, target: input.target, config: input.config });
-      await reload();
-      if (result.status === "error") {
-        toast.error(
-          result.certainty === "claim_unknown"
-            ? `${result.message} Nothing was started. Reload, then check the item before trying again.`
-            : result.message,
-        );
-        return false;
-      }
-      toast.show("Agent started.", { variant: "success" });
-      props.navigation?.openAgent({ agentId: result.agentId });
-      return true;
-    }
-    if (!capability.available) return false;
-    const result = await executeWorkItem({ ...shared, target: input.target, openAgentLaunch: capability.openAgentLaunch });
-    if (result.status === "unknown") {
-      toast.error(`${result.message} Nothing was opened. Reload, then check the item before trying again.`);
-      await reload();
-      return false;
-    }
-    if (result.status === "error") {
-      toast.error(result.error.message);
-      await reload();
-      return false;
-    }
-    return handleLaunchResult(result);
+    return launcher.launch(item, input);
   }
 
   function openEditor(next: StartingStatus) {
