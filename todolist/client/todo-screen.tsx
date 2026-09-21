@@ -33,6 +33,8 @@ import { MoveMenu } from "./move-menu";
 import { useProjectCache } from "./projects";
 import { resolveDraftIdentity, type DraftIdentity } from "./identity";
 import { RecoveryScreen } from "./recovery";
+import { useSidebarBadge } from "./sidebar-badge";
+import { needsYou } from "./summary";
 import { runWorkItemNow } from "./run";
 import { useTodoStyles } from "./styles";
 import { TEXT } from "./text";
@@ -115,6 +117,8 @@ function TodoReady(props: {
   const prefs = useSettings(todoPrefs);
   const projectCache = useProjectCache(paseo);
   const views = useWorkItemViews(todo);
+  // Any open Todo surface keeps the sidebar count fresh, not just a workspace header glyph.
+  useSidebarBadge(useMemo(() => [...views.values()].filter(needsYou).length, [views]));
   const actions = useTodoActions({ incarnationId: todo.incarnationId, reload });
   const capability = resolveLaunchCapability(props.navigation);
   const status = useRpc(documentStatus);
