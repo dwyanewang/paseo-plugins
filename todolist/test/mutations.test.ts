@@ -187,6 +187,20 @@ describe("launch claims", () => {
     expect(held).toMatchObject({ status: "claim_held", details: { attemptId: "att-1" } });
   });
 
+  it("refuses to launch content the caller never saw, but still replays its own attempt", () => {
+    const document = withWorkItem(baseDocument(), "wi-1");
+    const item = document.workItems["wi-1"]!;
+    expect(acquireLaunchMutation(document, { ...launchInput("wi-1", "att-1"), expectedItemVersion: item.version }, NOW).status).toBe("commit");
+    expect(acquireLaunchMutation(document, { ...launchInput("wi-1", "att-1"), expectedItemVersion: item.version + 1 }, NOW)).toMatchObject({
+      status: "conflict",
+    });
+    // A replay carries the version its first request did; the attempt snapshot already froze the
+    // content, so the check must not turn a recovery into a failure.
+    const claimed = withClaim(document, "wi-1", "att-1");
+    const edited = { ...claimed, workItems: { "wi-1": { ...claimed.workItems["wi-1"]!, version: item.version + 2 } } };
+    expect(acquireLaunchMutation(edited, { ...launchInput("wi-1", "att-1"), expectedItemVersion: item.version }, NOW).status).toBe("unchanged");
+  });
+
   it("refuses new attempts while a linked agent is active, stale-active, or the project is gone", () => {
     let document = withClaim(withWorkItem(baseDocument(), "wi-1"), "wi-1", "att-1");
     document = linkAgent(document, "agent-1", "wi-1", "att-1", "running");

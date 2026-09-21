@@ -5,6 +5,7 @@ import { computeRequestFingerprint } from "../shared/fingerprint";
 import { createId } from "../shared/ids";
 import { buildTodoLabels } from "../shared/labels";
 import type { Attempt, WorkItem } from "../shared/schema";
+import { acquireLaunchWithRecovery } from "./acquire";
 import type { LaunchRpcs } from "./launch";
 
 type PaseoApi = ReturnType<typeof usePaseo>;
@@ -44,7 +45,15 @@ export interface RunInput {
 
 export type RunResult =
   | { status: "started"; attempt: Attempt; agentId: string; workspaceId: string }
-  | { status: "error"; message: string; certainty: "not_submitted" | "outcome_unknown" };
+  | {
+      status: "error";
+      message: string;
+      /**
+       * `claim_unknown`: the claim request never got a reply, so nothing was sent to the host but
+       * the item may hold a claim this device cannot see. Reload before offering a retry.
+       */
+      certainty: "not_submitted" | "claim_unknown" | "outcome_unknown";
+    };
 
 function describe(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -70,24 +79,23 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
     labels,
     seedPrompt: input.seedPrompt,
   });
-  let acquired;
-  try {
-    acquired = await input.rpcs.acquire({
-      expectedIncarnationId: input.incarnationId,
-      workItemId: input.item.id,
-      attemptId,
-      requestFingerprint,
-      clientMessageId,
-      seedPrompt: input.seedPrompt,
-      seedPromptSource: input.seedPromptSource,
-      initiatorLabel: input.initiatorLabel,
-    });
-  } catch (error) {
-    return { status: "error", message: describe(error, "Could not reach the daemon."), certainty: "not_submitted" };
-  }
+  const acquired = await acquireLaunchWithRecovery(input.rpcs.acquire, {
+    expectedIncarnationId: input.incarnationId,
+    workItemId: input.item.id,
+    attemptId,
+    requestFingerprint,
+    clientMessageId,
+    seedPrompt: input.seedPrompt,
+    seedPromptSource: input.seedPromptSource,
+    initiatorLabel: input.initiatorLabel,
+    expectedItemVersion: input.item.version,
+  });
   input.onChange();
-  if (acquired.status !== "ok") {
-    return { status: "error", message: acquired.message, certainty: "not_submitted" };
+  if (acquired.status === "unknown") {
+    return { status: "error", message: acquired.message, certainty: "claim_unknown" };
+  }
+  if (acquired.status === "error") {
+    return { status: "error", message: acquired.error.message, certainty: "not_submitted" };
   }
   const { attempt, claim } = acquired;
 

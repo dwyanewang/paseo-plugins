@@ -17,10 +17,9 @@ import {
   updateWorkItem,
   type TodoError,
 } from "../shared/contracts";
-import { computeCreationFingerprint } from "../shared/fingerprint";
-import { createId } from "../shared/ids";
 import type { WorkItem, WorkItemPriority, WorkItemStatus } from "../shared/schema";
 import { describeTodoError, useTodoInvalidate } from "./data";
+import type { WorkItemIdentity } from "./identity";
 import type { LaunchRpcs } from "./launch";
 
 type Output<Contract extends { output: z.ZodType }> = z.output<Contract["output"]>;
@@ -30,7 +29,11 @@ export interface TodoActions {
   reload: () => Promise<void>;
   launchRpcs: LaunchRpcs;
   ensure: () => Promise<Output<typeof ensureDocument>>;
-  create: (input: { projectId: string; projectNameSnapshot: string; projectRootSnapshot?: string; title: string; details: string; defaultPrompt: string; status?: "backlog" | "todo"; priority?: WorkItemPriority }) => Promise<WorkItem | null>;
+  /** `identity` comes from the caller so a retry of the same draft reuses it; see `identity.ts`. */
+  create: (
+    input: { projectId: string; projectNameSnapshot: string; projectRootSnapshot?: string; title: string; details: string; defaultPrompt: string; status?: "backlog" | "todo"; priority?: WorkItemPriority },
+    identity: WorkItemIdentity,
+  ) => Promise<WorkItem | null>;
   update: (item: WorkItem, patch: { title?: string; details?: string; defaultPrompt?: string; priority?: WorkItemPriority }) => Promise<boolean>;
   /** Null when the write failed (already reported). `previousStatus` is where the card really was. */
   move: (item: WorkItem, status: WorkItemStatus) => Promise<{ previousStatus: WorkItemStatus } | null>;
@@ -97,16 +100,10 @@ export function useTodoActions(input: { incarnationId: string; reload: () => Pro
         abandon: (request) => rpcAbandon(request),
       },
       ensure: () => rpcEnsure({}),
-      async create(request) {
-        const id = createId("wi");
-        const creationFingerprint = computeCreationFingerprint({
-          id,
-          projectId: request.projectId,
-          title: request.title,
-          details: request.details,
-          defaultPrompt: request.defaultPrompt,
-        });
-        const result = await finish(rpcCreate({ expectedIncarnationId: incarnationId, id, creationFingerprint, ...request }));
+      async create(request, identity) {
+        const result = await finish(
+          rpcCreate({ expectedIncarnationId: incarnationId, id: identity.id, creationFingerprint: identity.creationFingerprint, ...request }),
+        );
         return result && result.status === "ok" ? result.workItem : null;
       },
       async update(item, patch) {

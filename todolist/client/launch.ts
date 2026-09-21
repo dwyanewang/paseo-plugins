@@ -5,6 +5,7 @@ import { computeRequestFingerprint } from "../shared/fingerprint";
 import { createId } from "../shared/ids";
 import { buildTodoLabels } from "../shared/labels";
 import type { Attempt, LaunchClaim, WorkItem } from "../shared/schema";
+import { acquireLaunchWithRecovery } from "./acquire";
 import type { OpenAgentLaunch } from "./launch-guard";
 
 type AcquireOutput = z.output<typeof acquireLaunch.output>;
@@ -45,7 +46,9 @@ export type ExecuteResult =
   | { status: "opened" | "restored"; attempt: Attempt; claim: LaunchClaim; open: OpenResult<"opened" | "restored"> }
   | { status: "completed"; attempt: Attempt; claim: LaunchClaim; open: OpenResult<"completed"> }
   | { status: "rejected"; attempt: Attempt; claim: LaunchClaim; open: OpenResult<"rejected"> }
-  | { status: "error"; error: TodoError };
+  | { status: "error"; error: TodoError }
+  /** The claim request never got a reply: nothing was opened, and a claim may exist. */
+  | { status: "unknown"; message: string };
 
 /** Local device identity, learned from the first journal_ready of this runtime. */
 let knownClientInstanceId: string | null = null;
@@ -148,7 +151,7 @@ export async function executeWorkItem(input: ExecuteInput): Promise<ExecuteResul
     labels,
     seedPrompt: input.seedPrompt,
   });
-  const acquired = await input.rpcs.acquire({
+  const acquired = await acquireLaunchWithRecovery(input.rpcs.acquire, {
     expectedIncarnationId: input.incarnationId,
     workItemId: input.item.id,
     attemptId,
@@ -157,9 +160,11 @@ export async function executeWorkItem(input: ExecuteInput): Promise<ExecuteResul
     seedPrompt: input.seedPrompt,
     seedPromptSource: input.seedPromptSource,
     initiatorLabel: input.initiatorLabel,
+    expectedItemVersion: input.item.version,
   });
   input.onChange();
-  if (acquired.status !== "ok") return { status: "error", error: acquired };
+  if (acquired.status === "unknown") return { status: "unknown", message: acquired.message };
+  if (acquired.status === "error") return { status: "error", error: acquired.error };
   return openForAttempt({
     attempt: acquired.attempt,
     claim: acquired.claim,

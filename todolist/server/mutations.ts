@@ -366,6 +366,9 @@ export function acquireLaunchMutation(
     }
     return { status: "unchanged", result: { attempt: existingAttempt, claim, created: false } };
   }
+  if (input.expectedItemVersion !== undefined && item.version !== input.expectedItemVersion) {
+    return error("conflict", "The work item changed since this launch was prepared. Reload and try again.");
+  }
   if (item.status === "done" || item.status === "cancelled") {
     return error("invalid_transition", "Move the work item out of Done or Cancelled first.");
   }

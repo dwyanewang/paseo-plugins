@@ -26,7 +26,7 @@ function setup(thinkingOptionId?: string) {
     rpcs: { acquire, progress, abandon },
     onChange: vi.fn(),
   };
-  return { input, create, refresh, ref, progress, abandon, createWorkspace };
+  return { input, create, refresh, ref, acquire, progress, abandon, createWorkspace };
 }
 
 describe("direct execution", () => {
@@ -45,6 +45,24 @@ describe("direct execution", () => {
     const { input, create } = setup();
     await runWorkItemNow(input);
     expect(create.mock.calls[0][0].config).toEqual({ provider: "claude/opus", modeId: "auto" });
+  });
+
+  it("stops before the host when the claim request never gets a reply", async () => {
+    const { input, acquire, create, abandon } = setup();
+    acquire.mockRejectedValue(new Error("connection lost"));
+    await expect(runWorkItemNow(input)).resolves.toMatchObject({ status: "error", certainty: "claim_unknown" });
+    // Acquire is keyed by attempt, so asking again is a replay, not a second launch.
+    expect(acquire).toHaveBeenCalledTimes(2);
+    expect(acquire.mock.calls[0][0]).toEqual(acquire.mock.calls[1][0]);
+    expect(create).not.toHaveBeenCalled();
+    // Nothing is released: a claim may be held by the write whose reply was lost.
+    expect(abandon).not.toHaveBeenCalled();
+  });
+
+  it("carries the item version the caller launched from", async () => {
+    const { input, acquire } = setup();
+    await runWorkItemNow(input);
+    expect(acquire).toHaveBeenCalledWith(expect.objectContaining({ expectedItemVersion: input.item.version }));
   });
 
   it("does not start an agent if the selected workspace becomes unavailable", async () => {
@@ -132,6 +150,7 @@ function persistentLaunch() {
     createWorkspace,
     fail: (key: string, when: "before" | "after") => faults.set(key, when),
     attempt: () => Object.values(document.attempts)[0]!,
+    attemptCount: () => Object.keys(document.attempts).length,
     claim: () => document.claims["wi-1"],
   };
 }
@@ -189,6 +208,15 @@ describe("direct execution when a launch write loses its reply", () => {
     expect(launch.claim()?.state).toBe("pending");
     expect(cardState(launch)).toBe("outcome_unknown");
     expect(launch.attempt().workspaceIdHint).toBe("selected-workspace");
+  });
+
+  it("replays a claim whose reply was lost, and still starts exactly one agent", async () => {
+    const launch = persistentLaunch();
+    launch.input.target = { kind: "existing", workspaceId: "selected-workspace" };
+    launch.fail("acquire", "after");
+    await expect(runWorkItemNow(launch.input)).resolves.toMatchObject({ status: "started", agentId: "agent-1" });
+    expect(launch.create).toHaveBeenCalledOnce();
+    expect(launch.attemptCount()).toBe(1);
   });
 
   it("reads as unknown when the agent request itself fails", async () => {

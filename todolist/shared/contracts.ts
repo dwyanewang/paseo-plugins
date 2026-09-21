@@ -168,6 +168,12 @@ export const acquireLaunch = defineRpc({
     seedPrompt: z.string(),
     seedPromptSource: SeedPromptSourceSchema,
     initiatorLabel: z.string(),
+    /**
+     * Content version the caller launched from. A screen that has been open across an edit holds
+     * the old title and details, so the daemon refuses rather than start an agent on them. Replays
+     * of an attempt that already exists skip the check: their content is already snapshotted.
+     */
+    expectedItemVersion: z.number().int().positive().optional(),
   }),
   output: result({
     attempt: AttemptSchema,

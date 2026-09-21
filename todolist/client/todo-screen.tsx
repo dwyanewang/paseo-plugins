@@ -2,7 +2,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { usePaseo, useRpc, useSettings, type PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { FlatList, Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Text, View } from "react-native";
 import {
   WORK_ITEM_STATUS_LABELS,
@@ -31,6 +31,7 @@ import { executeWorkItem, openForAttempt, type ExecuteResult } from "./launch";
 import { resolveLaunchCapability } from "./launch-guard";
 import { MoveMenu } from "./move-menu";
 import { useProjectCache } from "./projects";
+import { resolveDraftIdentity, type DraftIdentity } from "./identity";
 import { RecoveryScreen } from "./recovery";
 import { runWorkItemNow } from "./run";
 import { useTodoStyles } from "./styles";
@@ -136,6 +137,8 @@ function TodoReady(props: {
   const [confirm, setConfirm] = useState<{ title: string; message: string; label: string; requireDouble: boolean; run: () => Promise<unknown> } | null>(null);
   const [armed, setArmed] = useState(false);
   const [checking, setChecking] = useState<string | null>(null);
+  // Kept across submissions so a retry after a lost reply recreates nothing; cleared once created.
+  const draftIdentity = useRef<DraftIdentity | null>(null);
 
   // An empty incarnation means the todo is fresh or was just reset: initialize it explicitly.
   useEffect(() => {
@@ -435,7 +438,11 @@ function TodoReady(props: {
       const result = await runWorkItemNow({ ...shared, paseo, target: input.target, config: input.config });
       await reload();
       if (result.status === "error") {
-        toast.error(result.message);
+        toast.error(
+          result.certainty === "claim_unknown"
+            ? `${result.message} Nothing was started. Reload, then check the item before trying again.`
+            : result.message,
+        );
         return false;
       }
       toast.show("Agent started.", { variant: "success" });
@@ -444,6 +451,11 @@ function TodoReady(props: {
     }
     if (!capability.available) return false;
     const result = await executeWorkItem({ ...shared, target: input.target, openAgentLaunch: capability.openAgentLaunch });
+    if (result.status === "unknown") {
+      toast.error(`${result.message} Nothing was opened. Reload, then check the item before trying again.`);
+      await reload();
+      return false;
+    }
     if (result.status === "error") {
       toast.error(result.error.message);
       await reload();
@@ -574,9 +586,13 @@ function TodoReady(props: {
           if (editor.view) {
             return actions.update(editor.view.item, { title: input.title, details: input.details, defaultPrompt: input.defaultPrompt, priority: input.priority });
           }
-          const created = await actions.create(input);
-          if (created && andExecute) executeNewItem(created);
-          return created !== null;
+          const draft = resolveDraftIdentity(draftIdentity.current, input);
+          draftIdentity.current = draft;
+          const created = await actions.create(input, draft.identity);
+          if (!created) return false;
+          draftIdentity.current = null;
+          if (andExecute) executeNewItem(created);
+          return true;
         }}
       />
       <RebindModal
