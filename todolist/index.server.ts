@@ -1,5 +1,6 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { createId } from "./shared/ids";
+import { todoImages } from "./shared/images";
 import { todoPrefs } from "./shared/prefs";
 import { todoData } from "./shared/schema";
 import { registerTodoHandlers } from "./server/handlers";
@@ -23,8 +24,10 @@ export default function contribute(server: PluginServerContext) {
   if (!document || typeof document.read !== "function" || typeof document.update !== "function") {
     throw new Error("Todo requires registerSettings to return a settings handle with update().");
   }
-  // Launch preferences are client-owned; registering them only publishes the read/write RPCs.
+  // Launch preferences and image bytes are client-owned; registering them only publishes the
+  // read/write RPCs so any connected client can persist them directly.
   server.registerSettings(todoPrefs);
+  server.registerSettings(todoImages);
   const log = createTodoLogger();
   const store = new TodoStore(document, {
     generateIncarnationId: () => createId("inc"),

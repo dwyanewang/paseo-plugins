@@ -19,7 +19,8 @@ needs:
 
 | Path | Owns |
 | --- | --- |
-| `shared/schema.ts` | Settings document (`todo-data`, version 3): work items with board status, priority and number, claims, attempts, agent links, retired IDs. |
+| `shared/schema.ts` | Settings document (`todo-data`, version 3): work items with board status, priority and number, image references, claims, attempts, agent links, retired IDs. |
+| `shared/images.ts` | Third settings document (`todo-images`, version 1): image bytes as base64, keyed by id, referenced from work items. Kept out of `todo-data` so image data never bloats its frequent writes or migrations. Client-written; pruned when the referencing card drops it or is purged. |
 | `shared/migrate.ts` | Stepwise migrations. 1 → 2: open items land in To do, In progress or In review by their agents, and numbers follow creation order. 2 → 3: manual ordering is dropped and every item gets an unset priority. |
 | `shared/board.ts` | Board rules: status and priority labels, card order, what each column's "+" does, and the automatic moves (`deriveAutoMove`). Moves never bump the content `version`. |
 | `shared/prefs.ts` | Second settings document (`todo-prefs`, version 1): launch mode, model, mode, thinking, and last-used workspace per project. Client-written; no business data. |
@@ -53,6 +54,10 @@ needs:
   worktree cut for this run in git projects, and sends the prompt as its first message; **In the
   composer** seeds the native draft and you press send. Both write the same claim, attempt and
   correlation labels, so they read and reconcile identically.
+- A card can carry images (PNG, JPEG, GIF, WebP) that describe the work. Picking needs the
+  desktop or web app (native surfaces have no file chooser). Images are sent to the agent only on
+  **Run now**, as attachments to its first message; the composer path is text-only. Bytes live in
+  the `todo-images` document and are capped per image and per card by `shared/limits.ts`.
 - A new worktree gets a branch named after the card (`todo-<number>-<title>-<suffix>`, editable) from
   the project's default branch unless another base is given. Creating the worktree is a
   request-start: if it fails, the attempt is `outcome_unknown` and nothing is retried.

@@ -12,6 +12,18 @@ import {
 } from "./schema";
 
 /**
+ * An image reference as the client submits it. The bytes themselves are written to the
+ * `todo-images` document first (client-owned); the main document only ever stores this metadata.
+ */
+export const WorkItemImageInputSchema = z.object({
+  id: z.string().min(1),
+  mimeType: z.string().min(1),
+  name: z.string().optional(),
+  byteLength: z.number().int().nonnegative(),
+});
+export type WorkItemImageInput = z.infer<typeof WorkItemImageInputSchema>;
+
+/**
  * Stable business error codes. Transport errors are never mapped onto these; a rejected RPC
  * promise means the request may or may not have been applied and the client must reload.
  */
@@ -83,6 +95,7 @@ export const createWorkItem = defineRpc({
     title: z.string(),
     details: z.string(),
     defaultPrompt: z.string(),
+    images: z.array(WorkItemImageInputSchema).optional(),
     /** Initial column: work starts in Backlog or To do, the later columns are reached by moving. */
     status: z.enum(["backlog", "todo"]).optional(),
     priority: WorkItemPrioritySchema.optional(),
@@ -101,6 +114,8 @@ export const updateWorkItem = defineRpc({
       details: z.string().optional(),
       defaultPrompt: z.string().optional(),
       priority: WorkItemPrioritySchema.optional(),
+      /** Replaces the whole image set when present; an empty array clears it. */
+      images: z.array(WorkItemImageInputSchema).optional(),
     }),
   }),
   output: result({ workItem: WorkItemSchema, seq: z.number().int() }),

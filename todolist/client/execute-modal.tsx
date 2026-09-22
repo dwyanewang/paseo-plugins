@@ -4,13 +4,14 @@ import { Icon, Modal, useToast } from "@getpaseo/plugin/client/react-native";
 import { SettingsCard, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Text, View } from "react-native";
+import { Image, Text, View } from "react-native";
 import { validateSeedPrompt } from "../shared/limits";
 import { todoPrefs, type LaunchMode } from "../shared/prefs";
 import { deriveSeedPrompt } from "../shared/prompt";
 import type { WorkItem } from "../shared/schema";
 import { useAgentConfigCatalog } from "./agent-config";
 import { Button, DialogActions, Field, Notice } from "./components";
+import { imageDataUri, useTodoImageStore } from "./images";
 import type { LaunchTarget } from "./launch";
 import { createId } from "../shared/ids";
 import { NEW_WORKSPACE, NEW_WORKTREE, resolveChoice, resolveWorkspaceTarget, worktreeNameFor } from "./launch-defaults";
@@ -65,6 +66,8 @@ export function ExecuteModal(props: {
   const paseo = usePaseo();
   const toast = useToast();
   const prefs = useSettings(todoPrefs);
+  const imageStore = useTodoImageStore();
+  const images = useMemo(() => (item ? imageStore.resolve(item.images) : []), [item, imageStore]);
   const catalog = useAgentConfigCatalog(paseo, props.open);
   const initialSeedPrompt = item ? deriveSeedPrompt(item) : "";
   const [seedPrompt, setSeedPrompt] = useState(initialSeedPrompt);
@@ -232,6 +235,27 @@ export function ExecuteModal(props: {
                 {item.projectNameSnapshot}
               </Text>
             </View>
+          </View>
+        ) : null}
+
+        {images.length > 0 ? (
+          <View style={{ gap: 6 }}>
+            <View style={[styles.rowWrap, { gap: 8 }]}>
+              {images.map((image) => (
+                <Image
+                  key={image.id}
+                  source={{ uri: imageDataUri(image) }}
+                  style={{ width: 56, height: 56, borderRadius: 6, borderWidth: 1, borderColor: theme.colors.border }}
+                  accessibilityLabel={image.name ?? "Attached image"}
+                  resizeMode="cover"
+                />
+              ))}
+            </View>
+            <Text style={styles.mono}>
+              {effectiveMode === "run"
+                ? `${images.length} image${images.length > 1 ? "s" : ""} will be sent with this run.`
+                : "Images are only sent on a direct run, not in the composer."}
+            </Text>
           </View>
         ) : null}
 

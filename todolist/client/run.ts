@@ -39,6 +39,8 @@ export interface RunInput {
   initiatorLabel: string;
   target: RunTarget;
   config: RunAgentConfig;
+  /** Image bytes to attach to the agent's first prompt; resolved from the card's references. */
+  images?: { data: string; mimeType: string }[];
   rpcs: LaunchRpcs;
   onChange: () => void;
 }
@@ -231,6 +233,7 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
       },
       title: input.item.title,
       prompt: input.seedPrompt,
+      ...(input.images && input.images.length > 0 ? { images: input.images } : {}),
       clientMessageId: attempt.clientMessageId,
       labels,
     });

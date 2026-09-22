@@ -83,6 +83,23 @@ describe("work item create", () => {
     expect(document.workItems["wi-1"]).toMatchObject({ status: "todo", priority: "none" });
     expect(document.workItems["wi-2"]).toMatchObject({ status: "backlog", priority: "urgent" });
   });
+
+  it("stores image references and rejects an oversized or unsupported set", () => {
+    const withImage = commit(
+      createWorkItemMutation(
+        baseDocument(),
+        { ...createInput("wi-img"), images: [{ id: "img_1", mimeType: "image/png", name: "shot.png", byteLength: 1024 }] },
+        NOW,
+      ),
+    );
+    expect(withImage.workItems["wi-img"]?.images).toEqual([{ id: "img_1", mimeType: "image/png", name: "shot.png", byteLength: 1024 }]);
+    expect(
+      createWorkItemMutation(baseDocument(), { ...createInput("wi-bad"), images: [{ id: "img_2", mimeType: "image/tiff", byteLength: 1 }] }, NOW),
+    ).toMatchObject({ status: "invalid_input", details: { field: "images", reason: "unsupported_type" } });
+    expect(
+      createWorkItemMutation(baseDocument(), { ...createInput("wi-huge"), images: [{ id: "img_3", mimeType: "image/png", byteLength: 5 * 1024 * 1024 }] }, NOW),
+    ).toMatchObject({ status: "invalid_input", details: { field: "images", reason: "too_large" } });
+  });
 });
 
 describe("versioned edits", () => {
@@ -94,6 +111,30 @@ describe("versioned edits", () => {
     const stale = updateWorkItemMutation(edited, { expectedIncarnationId: "inc-1", id: "wi-1", expectedVersion: 1, patch: { title: "Old" } }, NOW);
     expect(stale).toMatchObject({ status: "conflict", details: { currentVersion: 2 } });
     expect(edited.workItems["wi-1"]?.title).toBe("New");
+  });
+
+  it("replaces the image set only when it actually changes", () => {
+    const document = withWorkItem(baseDocument(), "wi-1");
+    const added = commit(
+      updateWorkItemMutation(
+        document,
+        { expectedIncarnationId: "inc-1", id: "wi-1", expectedVersion: 1, patch: { images: [{ id: "img_1", mimeType: "image/png", byteLength: 10 }] } },
+        NOW,
+      ),
+    );
+    expect(added.workItems["wi-1"]).toMatchObject({ version: 2, images: [{ id: "img_1" }] });
+    // Re-sending the same reference set is a no-op that neither bumps the version nor churns the doc.
+    expect(
+      updateWorkItemMutation(
+        added,
+        { expectedIncarnationId: "inc-1", id: "wi-1", expectedVersion: 2, patch: { images: [{ id: "img_1", mimeType: "image/png", byteLength: 10 }] } },
+        NOW,
+      ).status,
+    ).toBe("unchanged");
+    const cleared = commit(
+      updateWorkItemMutation(added, { expectedIncarnationId: "inc-1", id: "wi-1", expectedVersion: 2, patch: { images: [] } }, NOW),
+    );
+    expect(cleared.workItems["wi-1"]?.images).toEqual([]);
   });
 
   it("moves are last-writer-wins, keep the content version, and track completion", () => {

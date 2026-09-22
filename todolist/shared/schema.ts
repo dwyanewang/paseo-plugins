@@ -31,6 +31,22 @@ export const WORK_ITEM_PRIORITIES = ["urgent", "high", "medium", "low", "none"] 
 export const WorkItemPrioritySchema = z.enum(WORK_ITEM_PRIORITIES);
 export type WorkItemPriority = z.infer<typeof WorkItemPrioritySchema>;
 
+/**
+ * A reference to an image attached to a work item for description. Only metadata lives in this
+ * document; the base64 bytes live in the separate `todo-images` document (see `shared/images.ts`),
+ * so image data never bloats this frequently-written, migrated document.
+ */
+export const TodoImageRefSchema = z.object({
+  id: z.string().min(1),
+  /** For example `image/png`, `image/jpeg`. */
+  mimeType: z.string().min(1),
+  /** Original file name when one was available. */
+  name: z.string().optional(),
+  /** Decoded byte length, kept for display and capacity messaging. */
+  byteLength: z.number().int().nonnegative(),
+});
+export type TodoImageRef = z.infer<typeof TodoImageRefSchema>;
+
 export const WorkItemSchema = z.object({
   id: z.string().min(1),
   creationFingerprint: z.string().min(1),
@@ -44,6 +60,8 @@ export const WorkItemSchema = z.object({
   title: z.string(),
   details: z.string(),
   defaultPrompt: z.string(),
+  /** References to images that describe the work; bytes live in the `todo-images` document. */
+  images: z.array(TodoImageRefSchema).default([]),
   status: WorkItemStatusSchema,
   statusChangedAt: z.string(),
   statusReason: StatusReasonSchema,

@@ -26,6 +26,7 @@ import { Button, ConfirmModal, Notice } from "./components";
 import { ContinueModal, type StartRequest } from "./continue-modal";
 import { useTodoDocument, useWorkItemViews, type WorkItemView } from "./data";
 import { ExecuteModal, type ExecuteSubmit } from "./execute-modal";
+import { draftToRef, useTodoImageStore } from "./images";
 import { sendFollowUp } from "./follow-up";
 import { openForAttempt } from "./launch";
 import { resolveLaunchCapability } from "./launch-guard";
@@ -116,6 +117,21 @@ function TodoReady(props: {
   // Any open Todo surface keeps the sidebar count fresh, not just a workspace header glyph.
   useSidebarBadge(useMemo(() => [...views.values()].filter(needsYou).length, [views]));
   const actions = useTodoActions({ incarnationId: todo.incarnationId, reload });
+  const imageStore = useTodoImageStore();
+  // Image ids referenced by any card other than the one being edited. Bytes are only pruned when
+  // the edited card drops a reference no other known card still uses, so a stale replica never
+  // deletes an image another card depends on.
+  const referencedByOthers = useCallback(
+    (excludeItemId: string | null): Set<string> => {
+      const ids = new Set<string>();
+      for (const { item } of views.values()) {
+        if (item.id === excludeItemId) continue;
+        for (const ref of item.images) ids.add(ref.id);
+      }
+      return ids;
+    },
+    [views],
+  );
   const capability = resolveLaunchCapability(props.navigation);
   const launcher = useLaunchWorkItem({
     paseo,
@@ -125,6 +141,7 @@ function TodoReady(props: {
     initiatorLabel: initiatorLabel(props.platform, props.host.label),
     capability,
     openAgent: props.navigation?.openAgent,
+    resolveImages: (refs) => imageStore.resolve(refs).map((image) => ({ data: image.data, mimeType: image.mimeType })),
   });
   const status = useRpc(documentStatus);
   const health = useQuery({ queryKey: ["todo", "status", props.host.id], queryFn: () => status({}), refetchInterval: 60_000 });
@@ -354,7 +371,16 @@ function TodoReady(props: {
           message: force ? `${TEXT.purgeWarning}\n\n${TEXT.forcePurgeWarning}` : TEXT.purgeWarning,
           label: force ? "Force purge" : "Purge",
           requireDouble: true,
-          run: () => actions.purge(view.item, force),
+          run: async () => {
+            const purged = await actions.purge(view.item, force);
+            // The card is gone: drop its image bytes too, unless another card still points at them.
+            if (purged && view.item.images.length > 0) {
+              const others = referencedByOthers(view.item.id);
+              const removeIds = view.item.images.map((ref) => ref.id).filter((id) => !others.has(id));
+              if (removeIds.length > 0) await imageStore.save([], removeIds);
+            }
+            return purged;
+          },
         });
       },
       rebind: (view) => setRebind(view),
@@ -529,13 +555,29 @@ function TodoReady(props: {
         initialProjectId={projectId !== null && isProjectAvailable(projectId) ? projectId : projectCache.projects.size === 1 ? ([...projectCache.projects.keys()][0] ?? null) : null}
         initialStatus={editor.status}
         item={editor.view?.item ?? null}
-        onSubmit={async ({ execute: andExecute, ...input }) => {
+        onSubmit={async ({ execute: andExecute, images, ...input }) => {
+          // Persist the bytes before the reference RPC so a card never points at missing image data.
+          let refs: ReturnType<typeof draftToRef>[] | undefined;
+          if (images !== null) {
+            const oldIds = editor.view?.item.images.map((ref) => ref.id) ?? [];
+            const keptIds = new Set(images.map((image) => image.id));
+            const others = referencedByOthers(editor.view?.item.id ?? null);
+            const removeIds = oldIds.filter((id) => !keptIds.has(id) && !others.has(id));
+            if (images.length > 0 || removeIds.length > 0) {
+              const saved = await imageStore.save(images, removeIds);
+              if (!saved) {
+                toast.error("Could not save the image data. Try again.");
+                return false;
+              }
+            }
+            refs = images.map(draftToRef);
+          }
           if (editor.view) {
-            return actions.update(editor.view.item, { title: input.title, details: input.details, defaultPrompt: input.defaultPrompt, priority: input.priority });
+            return actions.update(editor.view.item, { title: input.title, details: input.details, defaultPrompt: input.defaultPrompt, priority: input.priority, ...(refs ? { images: refs } : {}) });
           }
           const draft = resolveDraftIdentity(draftIdentity.current, input);
           draftIdentity.current = draft;
-          const created = await actions.create(input, draft.identity);
+          const created = await actions.create({ ...input, ...(refs ? { images: refs } : {}) }, draft.identity);
           if (!created) return false;
           draftIdentity.current = null;
           if (andExecute) executeNewItem(created);

@@ -47,6 +47,15 @@ describe("direct execution", () => {
     expect(create.mock.calls[0][0].config).toEqual({ provider: "claude/opus", modeId: "auto" });
   });
 
+  it("attaches resolved image bytes to the agent, and omits the field when there are none", async () => {
+    const withImages = setup();
+    await runWorkItemNow({ ...withImages.input, images: [{ data: "aGk=", mimeType: "image/png" }] });
+    expect(withImages.create.mock.calls[0][0].images).toEqual([{ data: "aGk=", mimeType: "image/png" }]);
+    const none = setup();
+    await runWorkItemNow(none.input);
+    expect(none.create.mock.calls[0][0]).not.toHaveProperty("images");
+  });
+
   it("stops before the host when the claim request never gets a reply", async () => {
     const { input, acquire, create, abandon } = setup();
     acquire.mockRejectedValue(new Error("connection lost"));

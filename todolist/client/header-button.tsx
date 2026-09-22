@@ -8,6 +8,7 @@ import type { WorkItemStatus } from "../shared/schema";
 import { Button } from "./components";
 import { useTodoDocument, useWorkItemViews, type WorkItemView } from "./data";
 import { ExecuteModal, type ExecuteSubmit } from "./execute-modal";
+import { useTodoImageStore } from "./images";
 import { resolveDraftIdentity, type DraftIdentity } from "./identity";
 import { resolveLaunchCapability } from "./launch-guard";
 import { useProjectCache } from "./projects";
@@ -162,6 +163,7 @@ export function TodoHeaderPanel(props: PluginButtonContentProps) {
   const draft = useRef<DraftIdentity | null>(null);
   const paseo = usePaseo();
   const projectCache = useProjectCache(paseo);
+  const imageStore = useTodoImageStore();
   const capability = resolveLaunchCapability(props.navigation);
   const launcher = useLaunchWorkItem({
     paseo,
@@ -171,6 +173,7 @@ export function TodoHeaderPanel(props: PluginButtonContentProps) {
     initiatorLabel: initiatorLabel(props.layout.platform, props.host.label),
     capability,
     openAgent: props.navigation?.openAgent,
+    resolveImages: (refs) => imageStore.resolve(refs).map((image) => ({ data: image.data, mimeType: image.mimeType })),
   });
   const contents = useMemo(
     () => buildPanelContents(views.values(), project?.projectId ?? null),

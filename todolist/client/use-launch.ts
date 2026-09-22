@@ -1,7 +1,7 @@
 import type { usePaseo } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useCallback } from "react";
-import type { WorkItem } from "../shared/schema";
+import type { TodoImageRef, WorkItem } from "../shared/schema";
 import type { ExecuteSubmit } from "./execute-modal";
 import { executeWorkItem, type ExecuteResult } from "./launch";
 import type { LaunchCapability } from "./launch-guard";
@@ -25,6 +25,8 @@ export interface LaunchContext {
   capability: LaunchCapability;
   /** Opens the agent a direct run created; absent on hosts without navigation. */
   openAgent?: ((input: { agentId: string }) => void) | undefined;
+  /** Resolves a card's image references to the bytes a direct run sends to the agent. */
+  resolveImages?: (refs: readonly TodoImageRef[]) => { data: string; mimeType: string }[];
 }
 
 /**
@@ -42,6 +44,7 @@ export function useLaunchWorkItem(context: LaunchContext): {
   const { paseo, actions, incarnationId, reload, capability } = context;
   const label = context.initiatorLabel;
   const openAgent = context.openAgent;
+  const resolveImages = context.resolveImages;
 
   const describeResult = useCallback(
     (result: ExecuteResult) => {
@@ -89,7 +92,8 @@ export function useLaunchWorkItem(context: LaunchContext): {
         onChange: () => void reload(),
       };
       if (input.mode === "run") {
-        const result = await runWorkItemNow({ ...shared, paseo, target: input.target, config: input.config });
+        const images = resolveImages?.(target.images) ?? [];
+        const result = await runWorkItemNow({ ...shared, paseo, target: input.target, config: input.config, ...(images.length > 0 ? { images } : {}) });
         await reload();
         if (result.status === "error") {
           toast.error(
@@ -117,7 +121,7 @@ export function useLaunchWorkItem(context: LaunchContext): {
       }
       return describeResult(result);
     },
-    [actions, capability, describeResult, incarnationId, label, openAgent, paseo, reload, toast],
+    [actions, capability, describeResult, incarnationId, label, openAgent, paseo, reload, resolveImages, toast],
   );
 
   return { launch, describeResult };

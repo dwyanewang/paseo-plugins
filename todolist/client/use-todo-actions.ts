@@ -17,6 +17,7 @@ import {
   updateWorkItem,
   type TodoError,
 } from "../shared/contracts";
+import type { WorkItemImageInput } from "../shared/contracts";
 import type { WorkItem, WorkItemPriority, WorkItemStatus } from "../shared/schema";
 import { describeTodoError, useTodoInvalidate } from "./data";
 import type { WorkItemIdentity } from "./identity";
@@ -31,10 +32,10 @@ export interface TodoActions {
   ensure: () => Promise<Output<typeof ensureDocument>>;
   /** `identity` comes from the caller so a retry of the same draft reuses it; see `identity.ts`. */
   create: (
-    input: { projectId: string; projectNameSnapshot: string; projectRootSnapshot?: string; title: string; details: string; defaultPrompt: string; status?: "backlog" | "todo"; priority?: WorkItemPriority },
+    input: { projectId: string; projectNameSnapshot: string; projectRootSnapshot?: string; title: string; details: string; defaultPrompt: string; images?: WorkItemImageInput[]; status?: "backlog" | "todo"; priority?: WorkItemPriority },
     identity: WorkItemIdentity,
   ) => Promise<WorkItem | null>;
-  update: (item: WorkItem, patch: { title?: string; details?: string; defaultPrompt?: string; priority?: WorkItemPriority }) => Promise<boolean>;
+  update: (item: WorkItem, patch: { title?: string; details?: string; defaultPrompt?: string; priority?: WorkItemPriority; images?: WorkItemImageInput[] }) => Promise<boolean>;
   /** Null when the write failed (already reported). `previousStatus` is where the card really was. */
   move: (item: WorkItem, status: WorkItemStatus) => Promise<{ previousStatus: WorkItemStatus } | null>;
   setArchived: (item: WorkItem, archived: boolean) => Promise<boolean>;

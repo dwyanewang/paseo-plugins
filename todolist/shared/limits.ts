@@ -12,6 +12,16 @@ export const DETAILS_MAX_BYTES = 32 * 1024;
 export const PROMPT_MAX_BYTES = 64 * 1024;
 export const INITIATOR_LABEL_MAX_CODE_POINTS = 80;
 
+/**
+ * Image attachment limits. The bytes are stored as base64 inside the document, so they share the
+ * capacity budget below; these field limits give an early, friendly error before a write is even
+ * attempted, while the document capacity check remains the true ceiling.
+ */
+export const IMAGE_MAX_COUNT = 4;
+/** Decoded bytes per image. Base64 inflates this by roughly a third on the wire and on disk. */
+export const IMAGE_MAX_BYTES = 384 * 1024;
+export const IMAGE_ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
+
 export const CAPACITY = {
   /** Ordinary create/edit/acquire growth stops here. */
   softLimitBytes: 512 * 1024,
@@ -113,7 +123,8 @@ export type FieldError =
   | { field: "details"; reason: "too_long" }
   | { field: "defaultPrompt"; reason: "too_long" }
   | { field: "seedPrompt"; reason: "empty" | "too_long" }
-  | { field: "initiatorLabel"; reason: "too_long" };
+  | { field: "initiatorLabel"; reason: "too_long" }
+  | { field: "images"; reason: "too_many" | "too_large" | "unsupported_type" | "empty_data" };
 
 export function validateWorkItemFields(input: {
   title?: string;
@@ -131,6 +142,29 @@ export function validateWorkItemFields(input: {
   }
   if (input.defaultPrompt !== undefined && utf8ByteLength(input.defaultPrompt) > PROMPT_MAX_BYTES) {
     return { field: "defaultPrompt", reason: "too_long" };
+  }
+  return null;
+}
+
+/** Decoded byte length of a base64 string, without allocating the decoded buffer. */
+export function base64ByteLength(base64: string): number {
+  const clean = base64.replace(/=+$/, "");
+  return Math.floor((clean.length * 3) / 4);
+}
+
+export function validateWorkItemImages(
+  images: readonly { mimeType: string; byteLength: number }[] | undefined,
+): FieldError | null {
+  if (!images || images.length === 0) return null;
+  if (images.length > IMAGE_MAX_COUNT) return { field: "images", reason: "too_many" };
+  for (const image of images) {
+    if (image.byteLength <= 0) return { field: "images", reason: "empty_data" };
+    if (!(IMAGE_ALLOWED_MIME_TYPES as readonly string[]).includes(image.mimeType)) {
+      return { field: "images", reason: "unsupported_type" };
+    }
+    if (image.byteLength > IMAGE_MAX_BYTES) {
+      return { field: "images", reason: "too_large" };
+    }
   }
   return null;
 }

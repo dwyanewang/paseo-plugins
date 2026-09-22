@@ -26,6 +26,7 @@ import {
   validateInitiatorLabel,
   validateSeedPrompt,
   validateWorkItemFields,
+  validateWorkItemImages,
   type FieldError,
 } from "../shared/limits";
 import type {
@@ -33,9 +34,11 @@ import type {
   Attempt,
   LaunchClaim,
   TodoDocument,
+  TodoImageRef,
   WorkItem,
   WorkItemStatus,
 } from "../shared/schema";
+import type { WorkItemImageInput } from "../shared/contracts";
 import { aggregateWorkItem, isActiveDisplayState } from "../shared/state";
 import type { MutationError, MutationOutcome } from "./store";
 
@@ -58,6 +61,36 @@ function fieldError(failure: FieldError): MutationError {
 
 function touched(item: WorkItem, now: string, patch: Partial<WorkItem>): WorkItem {
   return { ...item, ...patch, version: item.version + 1, updatedAt: now };
+}
+
+/** Normalizes submitted image references into stored refs; the client owns the id and byte count. */
+function buildImages(inputs: readonly WorkItemImageInput[] | undefined): TodoImageRef[] {
+  if (!inputs || inputs.length === 0) return [];
+  return inputs.map(toRef);
+}
+
+function toRef(input: WorkItemImageInput): TodoImageRef {
+  return {
+    id: input.id,
+    mimeType: input.mimeType,
+    ...(input.name ? { name: input.name } : {}),
+    byteLength: input.byteLength,
+  };
+}
+
+/**
+ * Resolves a full replacement reference set against the stored one. Returns null when the set is
+ * unchanged, so an edit that only touched other fields does not churn the version.
+ */
+function reconcileImages(
+  current: readonly TodoImageRef[],
+  desired: readonly WorkItemImageInput[],
+): TodoImageRef[] | null {
+  const unchanged =
+    current.length === desired.length &&
+    current.every((ref, index) => desired[index]?.id === ref.id);
+  if (unchanged) return null;
+  return desired.map(toRef);
 }
 
 export function attemptsForWorkItem(document: TodoDocument, workItemId: string): Attempt[] {
@@ -134,6 +167,8 @@ export function createWorkItemMutation(
   }
   const invalid = validateWorkItemFields(input);
   if (invalid) return fieldError(invalid);
+  const imagesInvalid = validateWorkItemImages(input.images);
+  if (imagesInvalid) return fieldError(imagesInvalid);
   const status = input.status ?? "todo";
   const workItem: WorkItem = {
     id: input.id,
@@ -146,6 +181,7 @@ export function createWorkItemMutation(
     title: input.title.trim(),
     details: input.details,
     defaultPrompt: input.defaultPrompt,
+    images: buildImages(input.images),
     status,
     statusChangedAt: now,
     statusReason: "created",
@@ -192,6 +228,8 @@ export function updateWorkItemMutation(
   if (isError(item)) return item;
   const invalid = validateWorkItemFields(input.patch);
   if (invalid) return fieldError(invalid);
+  const imagesInvalid = validateWorkItemImages(input.patch.images);
+  if (imagesInvalid) return fieldError(imagesInvalid);
   const patch: Partial<WorkItem> = {};
   if (input.patch.title !== undefined && input.patch.title.trim() !== item.title) {
     patch.title = input.patch.title.trim();
@@ -204,6 +242,10 @@ export function updateWorkItemMutation(
   }
   if (input.patch.priority !== undefined && input.patch.priority !== item.priority) {
     patch.priority = input.patch.priority;
+  }
+  if (input.patch.images !== undefined) {
+    const nextImages = reconcileImages(item.images, input.patch.images);
+    if (nextImages) patch.images = nextImages;
   }
   if (Object.keys(patch).length === 0) return { status: "unchanged", result: { workItem: item } };
   const workItem = touched(item, now, patch);
