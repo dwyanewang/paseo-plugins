@@ -4,6 +4,7 @@ import { todoImages } from "./shared/images";
 import { todoPrefs } from "./shared/prefs";
 import { todoData } from "./shared/schema";
 import { registerTodoHandlers } from "./server/handlers";
+import { registerImageHandlers } from "./server/image-files";
 import { createTodoLogger } from "./server/log";
 import { TodoReconciler } from "./server/reconcile";
 import { TodoStore } from "./server/store";
@@ -24,10 +25,11 @@ export default function contribute(server: PluginServerContext) {
   if (!document || typeof document.read !== "function" || typeof document.update !== "function") {
     throw new Error("Todo requires registerSettings to return a settings handle with update().");
   }
-  // Launch preferences and image bytes are client-owned; registering them only publishes the
-  // read/write RPCs so any connected client can persist them directly.
+  // Launch preferences and image bytes are client-owned; registering them publishes the read/write
+  // RPCs so any connected client can persist them directly. The server only reads the bytes, to
+  // write them to files an agent can open.
   server.registerSettings(todoPrefs);
-  server.registerSettings(todoImages);
+  const images = server.registerSettings(todoImages);
   const log = createTodoLogger();
   const store = new TodoStore(document, {
     generateIncarnationId: () => createId("inc"),
@@ -41,6 +43,7 @@ export default function contribute(server: PluginServerContext) {
     log,
   });
   registerTodoHandlers({ server, paseo: server.paseo, store, reconciler, log });
+  registerImageHandlers({ server, images, log });
   // Synchronous registration above; bootstrap runs asynchronously inside start().
   const stop = reconciler.start();
   return async () => {

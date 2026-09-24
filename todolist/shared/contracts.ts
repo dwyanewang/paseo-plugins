@@ -1,5 +1,6 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
+import { IMAGE_MAX_COUNT } from "./limits";
 import {
   AgentLinkSchema,
   AttemptFactSchema,
@@ -276,6 +277,26 @@ export const checkLaunch = defineRpc({
   }),
 });
 
+/** A card image written to a file on the daemon host, shaped like a host `uploaded_file`. */
+export const StagedImageFileSchema = z.object({
+  id: z.string(),
+  fileName: z.string(),
+  mimeType: z.string(),
+  size: z.number().int().nonnegative(),
+  path: z.string(),
+});
+export type StagedImageFile = z.infer<typeof StagedImageFileSchema>;
+
+/**
+ * Writes card images from the `todo-images` document to files, so a launch can hand the agent
+ * paths it can open at any point in the conversation, not only the inline copy in its first turn.
+ */
+export const stageImages = defineRpc({
+  name: "todo.images.stage",
+  input: z.object({ ids: z.array(z.string().min(1)).max(IMAGE_MAX_COUNT) }),
+  output: result({ files: z.array(StagedImageFileSchema), missing: z.array(z.string()) }),
+});
+
 export const todoRpcs = {
   ensureDocument,
   documentStatus,
@@ -290,4 +311,5 @@ export const todoRpcs = {
   abandonLaunch,
   forgetAttempt,
   checkLaunch,
+  stageImages,
 } as const;
