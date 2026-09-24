@@ -2,8 +2,11 @@ import { useSettings } from "@getpaseo/plugin/client";
 import { useCallback } from "react";
 import type { WorkItemImageInput } from "../shared/contracts";
 import { todoImages, type StoredImage } from "../shared/images";
+import { IMAGE_MAX_COUNT, type FieldError } from "../shared/limits";
 import type { TodoImageRef } from "../shared/schema";
-import { pickImageDraftsWeb } from "./web";
+import { pickImages } from "@getpaseo/plugin/client/react-native";
+import { createId } from "../shared/ids";
+import { canTakeImagesWeb, pickImageDraftsWeb, subscribeImageInput } from "./web";
 
 /**
  * An image the editor is working with: metadata plus the in-memory base64 bytes. Existing images
@@ -42,13 +45,62 @@ function storedToDraft(image: StoredImage): DraftImage {
   };
 }
 
+/** Undefined on hosts that predate the plugin image picker. */
+const hostPickImages = typeof pickImages === "function" ? pickImages : null;
+
+/** Whether this runtime can attach images at all: the host's picker, or the browser's. */
+export function canTakeImages(): boolean {
+  return hostPickImages !== null || canTakeImagesWeb();
+}
+
+/** Whether images can also be pasted or dropped onto a box; only the browser can. */
+export function canPasteImages(): boolean {
+  return canTakeImagesWeb();
+}
+
 /**
- * Opens the platform file chooser and returns the picked images as drafts with fresh ids. Returns
- * an empty list when the user cancels, and null when no chooser is available (native surfaces have
- * no DOM file input; only the desktop/web runtime does). The DOM work lives in `client/web.ts`.
+ * Opens the platform chooser and returns the picked images as drafts with fresh ids, at most
+ * `limit`. Returns an empty list when the user cancels, and null when no chooser is available.
+ * The browser keeps its own chooser, which scales oversized images down (`client/web.ts`); the
+ * host's picker does not resize, so an oversized image there is refused by the caller instead.
+ * Rejects when the platform refuses, such as denied photo access.
  */
-export function pickImageDrafts(): Promise<DraftImage[] | null> {
-  return pickImageDraftsWeb();
+export async function pickImageDrafts(limit: number): Promise<DraftImage[] | null> {
+  if (canTakeImagesWeb()) return pickImageDraftsWeb();
+  if (!hostPickImages) return null;
+  const picked = await hostPickImages({ multiple: true, limit });
+  return picked.map((image) => ({
+    id: createId("img"),
+    data: image.base64,
+    mimeType: image.mimeType,
+    ...(image.fileName ? { name: image.fileName } : {}),
+    byteLength: image.byteLength,
+  }));
+}
+
+/**
+ * Delivers images pasted or dropped inside the view with this `nativeID`, and tells `onDragging`
+ * while files are held over it; null without a DOM.
+ */
+export function subscribePastedImages(
+  targetId: string,
+  onImages: (drafts: DraftImage[]) => void,
+  onDragging?: (dragging: boolean) => void,
+): (() => void) | null {
+  return subscribeImageInput(targetId, onImages, onDragging);
+}
+
+export function describeImageError(reason: Extract<FieldError, { field: "images" }>["reason"]): string {
+  switch (reason) {
+    case "too_many":
+      return `Up to ${IMAGE_MAX_COUNT} images per card.`;
+    case "too_large":
+      return "That image is too large to attach, even scaled down.";
+    case "unsupported_type":
+      return "Only PNG, JPEG, GIF, and WebP images are supported.";
+    default:
+      return "That image could not be read.";
+  }
 }
 
 export interface TodoImageStore {
@@ -112,4 +164,23 @@ export function useTodoImageStore(): TodoImageStore {
   );
 
   return { ready: settings.status === "ready", resolve, save };
+}
+
+/**
+ * Saves the bytes of a card's edited image set, then returns the references for the work-item RPC,
+ * or null when the bytes could not be written. Bytes go first so a reference never points at data
+ * that was never stored. Only images this edit dropped, and no other known card uses, are deleted.
+ */
+export async function persistCardImages(
+  store: TodoImageStore,
+  images: readonly DraftImage[],
+  previous: readonly TodoImageRef[],
+  usedElsewhere: ReadonlySet<string>,
+): Promise<WorkItemImageInput[] | null> {
+  const kept = new Set(images.map((image) => image.id));
+  const removeIds = previous.map((ref) => ref.id).filter((id) => !kept.has(id) && !usedElsewhere.has(id));
+  if (images.length > 0 || removeIds.length > 0) {
+    if (!(await store.save(images, removeIds))) return null;
+  }
+  return images.map(draftToRef);
 }

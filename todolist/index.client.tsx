@@ -7,6 +7,13 @@ import { TodoSettingsScreen } from "./client/settings-screen";
 import { TodoSurface } from "./client/surface";
 
 /**
+ * The header panel: no title row over it on phones, since the box on top already says what it is,
+ * and room on wide screens for the new-item box's tool row on one line. Hosts that predate these
+ * options ignore them.
+ */
+const PANEL = { kind: "popover" as const, Content: TodoHeaderPanel, sheetTitle: false as const, width: 560 };
+
+/**
  * A header button belongs to one workspace, so the set has to follow the workspaces the host
  * knows: list once, then keep up with the subscription. Registrations are kept stable — the count
  * and the dot are drawn by the icon component, which re-renders on its own, because re-registering
@@ -24,7 +31,7 @@ function trackWorkspaceButtons(client: PluginClientContext): () => void {
         button: {
           title: "Todo",
           icon: TodoHeaderIcon,
-          behavior: { kind: "popover", Content: TodoHeaderPanel },
+          behavior: PANEL,
         },
       }),
     );

@@ -7,6 +7,7 @@ export function TodoSurface({ theme, host, layout, navigation }: PluginSurfacePr
       theme={theme}
       compact={layout.compact}
       platform={layout.platform}
+      insets={layout.insets}
       host={host}
       navigation={navigation}
       projectFilter={null}

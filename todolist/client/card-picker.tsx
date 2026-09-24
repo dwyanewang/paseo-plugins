@@ -1,139 +1,98 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Icon, Modal } from "@getpaseo/plugin/client/react-native";
-import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
-import { WORK_ITEM_PRIORITY_LABELS, WORK_ITEM_STATUS_LABELS, type BoardColumn } from "../shared/board";
+import { useEffect, useState } from "react";
+import { Text } from "react-native";
+import { WORK_ITEM_STATUS_LABELS, type BoardColumn } from "../shared/board";
 import type { WorkItemStatus } from "../shared/schema";
-import { Button, DialogActions } from "./components";
 import type { WorkItemView } from "./data";
-import type { TodoStyles } from "./styles";
-import { PRIORITY_PRESENTATION, STATUS_PRESENTATION } from "./text";
+import { AnchoredMenu } from "./floating-menu";
+import type { Rect } from "./overlay";
+import { TextAction } from "./overlay-parts";
+import { PRIORITY_PRESENTATION } from "./text";
 
 export interface PickRequest {
   target: WorkItemStatus;
   /** Candidate cards grouped by the column they come from, in board order. */
   groups: BoardColumn<WorkItemView>[];
   multiple: boolean;
+  /** The column's "+", in window coordinates. */
+  anchor: Rect;
 }
 
 /**
- * Pulls existing cards into a column: one card to start in In progress, several reviewed cards to
- * mark Done. Candidates follow the board's current project filter and search.
+ * Pulls existing cards into a column from a menu on its "+": one card to start in In progress,
+ * several reviewed cards to mark Done. Candidates follow the board's current project filter and
+ * search.
  */
 export function CardPicker(props: {
-  styles: TodoStyles;
   theme: PluginTheme;
   request: PickRequest | null;
   showProject: boolean;
   onClose: () => void;
   onConfirm: (target: WorkItemStatus, views: WorkItemView[]) => void;
 }) {
-  const { request } = props;
-  const label = request ? WORK_ITEM_STATUS_LABELS[request.target] : "";
-  return (
-    <Modal
-      title={request?.multiple ? `Add cards to ${label}` : `Add a card to ${label}`}
-      open={request !== null}
-      onOpenChange={(open) => !open && props.onClose()}
-    >
-      {/* The body mounts per opening, so the selection starts empty every time. */}
-      <Modal.Content>{request ? <PickerBody {...props} request={request} /> : null}</Modal.Content>
-    </Modal>
-  );
-}
-
-function PickerBody(props: {
-  styles: TodoStyles;
-  theme: PluginTheme;
-  request: PickRequest;
-  showProject: boolean;
-  onClose: () => void;
-  onConfirm: (target: WorkItemStatus, views: WorkItemView[]) => void;
-}) {
-  const { styles, theme, request } = props;
+  const { theme } = props;
+  const request = props.request ?? { target: "done" as const, groups: [], multiple: false, anchor: { x: 0, y: 0, width: 0, height: 0 } };
   const [selected, setSelected] = useState<string[]>([]);
+  // Each opening starts with nothing selected.
+  useEffect(() => setSelected([]), [props.request]);
   const candidates = request.groups.flatMap((group) => group.views);
   const chosen = candidates.filter((view) => selected.includes(view.item.id));
-  const toggle = (id: string) =>
-    setSelected((current) => (request.multiple ? (current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]) : [id]));
-  const confirmLabel = request.target !== "done" ? "Move to In progress" : chosen.length > 1 ? `Mark ${chosen.length} done` : "Mark done";
+  const sectioned = request.groups.filter((group) => group.views.length > 0).length > 1;
+  const items = request.groups.flatMap((group) =>
+    group.views.map((view) => ({
+      key: view.item.id,
+      label: `#${view.item.number} ${view.item.title}`,
+      ...(props.showProject ? { hint: view.item.projectNameSnapshot } : {}),
+      icon: PRIORITY_PRESENTATION[view.item.priority].icon,
+      iconColor: theme.colors[PRIORITY_PRESENTATION[view.item.priority].color],
+      checked: selected.includes(view.item.id),
+      ...(sectioned ? { section: WORK_ITEM_STATUS_LABELS[group.status] } : {}),
+    })),
+  );
+  const sources = request.groups.map((group) => WORK_ITEM_STATUS_LABELS[group.status]).join(" or ");
   return (
-    <>
-      <Text style={styles.muted}>
-        {request.multiple ? "Choose the reviewed cards to close." : "Choose the card to start. Moving it opens the run dialog."}
-      </Text>
-      {candidates.length === 0 ? (
-        <View style={{ alignItems: "center", gap: 8, paddingVertical: 24 }}>
-          <Icon name="Inbox" size={24} color={theme.colors.foregroundMuted} />
-          <Text style={[styles.muted, { textAlign: "center" }]}>
-            {`No cards in ${request.groups.map((group) => WORK_ITEM_STATUS_LABELS[group.status]).join(" or ")} match the current filter.`}
-          </Text>
-        </View>
-      ) : null}
-      {request.groups
-        .filter((group) => group.views.length > 0)
-        .map((group) => (
-          <View key={group.status} style={{ gap: 6 }}>
-            <View style={[styles.row, { gap: 6 }]}>
-              <Icon name={STATUS_PRESENTATION[group.status].icon} size={12} color={theme.colors[STATUS_PRESENTATION[group.status].color]} />
-              <Text style={styles.sectionTitle}>
-                {WORK_ITEM_STATUS_LABELS[group.status]} · {group.views.length}
-              </Text>
-            </View>
-            {group.views.map((view) => {
-              const checked = selected.includes(view.item.id);
-              const priority = PRIORITY_PRESENTATION[view.item.priority];
-              return (
-                <Pressable
-                  key={view.item.id}
-                  accessibilityRole={request.multiple ? "checkbox" : "radio"}
-                  accessibilityState={{ checked }}
-                  aria-checked={checked}
-                  accessibilityLabel={`#${view.item.number} ${view.item.title}, ${WORK_ITEM_PRIORITY_LABELS[view.item.priority]}`}
-                  onPress={() => toggle(view.item.id)}
-                  style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [
-                    styles.listRow,
-                    hovered && !checked ? { borderColor: theme.colors.foregroundMuted } : null,
-                    checked ? styles.listRowSelected : null,
-                  ]}
-                >
-                  <Icon
-                    name={request.multiple ? (checked ? "SquareCheck" : "Square") : checked ? "CircleDot" : "Circle"}
-                    size={16}
-                    color={checked ? theme.colors.accent : theme.colors.foregroundMuted}
-                  />
-                  <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
-                    <Text style={[styles.body, { fontWeight: "500" }]} numberOfLines={1}>
-                      {view.item.title}
-                    </Text>
-                    <Text style={styles.metaText} numberOfLines={1}>
-                      #{view.item.number}
-                      {props.showProject ? ` · ${view.item.projectNameSnapshot}` : ""}
-                    </Text>
-                  </View>
-                  {view.item.priority !== "none" ? (
-                    <View style={styles.badge}>
-                      <Icon name={priority.icon} size={11} color={theme.colors[priority.color]} />
-                      <Text style={styles.badgeText}>{WORK_ITEM_PRIORITY_LABELS[view.item.priority]}</Text>
-                    </View>
-                  ) : null}
-                </Pressable>
-              );
-            })}
-          </View>
-        ))}
-      <DialogActions styles={styles}>
-        <Button styles={styles} theme={theme} label="Cancel" onPress={props.onClose} />
-        <Button
-          styles={styles}
-          theme={theme}
-          label={confirmLabel}
-          icon={request.target === "done" ? "CircleCheck" : "Play"}
-          variant="primary"
-          disabled={chosen.length === 0}
-          onPress={() => props.onConfirm(request.target, chosen)}
-        />
-      </DialogActions>
-    </>
+    <AnchoredMenu
+      theme={theme}
+      anchor={props.request ? request.anchor : null}
+      onClose={props.onClose}
+      label={request.multiple ? `Add cards to ${WORK_ITEM_STATUS_LABELS[request.target]}` : `Add a card to ${WORK_ITEM_STATUS_LABELS[request.target]}`}
+      items={items}
+      multiple={request.multiple}
+      width={320}
+      align="end"
+      note={
+        request.multiple
+          ? { icon: "CircleCheck", text: "Mark reviewed cards as Done" }
+          : { icon: "Play", text: "Choose the card to start. Moving it opens the run box." }
+      }
+      filter={{ placeholder: "Filter cards…", noun: "cards" }}
+      empty={candidates.length === 0 ? `No cards in ${sources} match the current filter.` : "No matching cards"}
+      {...(request.multiple
+        ? {
+            footer: (
+              <>
+                <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{`${chosen.length} selected`}</Text>
+                <TextAction
+                  theme={theme}
+                  small
+                  kind="accent"
+                  icon="Check"
+                  label={chosen.length > 0 ? `Move ${chosen.length} to ${WORK_ITEM_STATUS_LABELS[request.target]}` : `Move to ${WORK_ITEM_STATUS_LABELS[request.target]}`}
+                  disabled={chosen.length === 0}
+                  onPress={() => props.onConfirm(request.target, chosen)}
+                />
+              </>
+            ),
+          }
+        : {})}
+      onSelect={(id) => {
+        if (!request.multiple) {
+          const view = candidates.find((candidate) => candidate.item.id === id);
+          if (view) props.onConfirm(request.target, [view]);
+          return;
+        }
+        setSelected((current) => (current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]));
+      }}
+    />
   );
 }

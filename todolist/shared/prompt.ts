@@ -14,3 +14,10 @@ export function deriveSeedPrompt(
   const details = item.details.trim();
   return details.length > 0 ? `${title}\n\n${details}` : title;
 }
+
+/** The composer takes only text, so a card's images reach it as paths the agent can open. */
+export function appendImagePaths(prompt: string, files: readonly { path: string }[]): string {
+  if (files.length === 0) return prompt;
+  const lines = files.map((file) => `- ${file.path}`);
+  return `${prompt}\n\nImages attached to this task (open them to view):\n${lines.join("\n")}`;
+}

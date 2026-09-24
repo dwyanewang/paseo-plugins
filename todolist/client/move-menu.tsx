@@ -1,65 +1,41 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Icon, Modal } from "@getpaseo/plugin/client/react-native";
-import { Pressable, Text, View } from "react-native";
-import { WORK_ITEM_STATUS_LABELS } from "../shared/board";
 import { WORK_ITEM_STATUSES, type WorkItemStatus } from "../shared/schema";
-import { Button } from "./components";
 import type { WorkItemView } from "./data";
-import type { TodoStyles } from "./styles";
-import { STATUS_PRESENTATION } from "./text";
+import { AnchoredMenu } from "./floating-menu";
+import type { Rect } from "./overlay";
+import { statusItems } from "./work-item-editor";
 
-/** A card's quick menu: one row per column, the current one checked. */
+/**
+ * A card's quick menu, next to its "⋯" (or the card itself after a long press): edit it, or move it
+ * to another column, the current one checked. Opening the card is a press on the card.
+ */
 export function MoveMenu(props: {
-  styles: TodoStyles;
   theme: PluginTheme;
-  view: WorkItemView | null;
+  target: { view: WorkItemView; anchor: Rect } | null;
   onClose: () => void;
+  onEdit: (view: WorkItemView) => void;
   onMove: (view: WorkItemView, status: WorkItemStatus) => void;
-  onOpenDetails: (view: WorkItemView) => void;
 }) {
-  const { styles, theme, view } = props;
-  const item = view?.item;
+  const { theme, target } = props;
+  const items = target
+    ? [
+        { key: "edit", label: "Edit", icon: "Pencil" },
+        ...statusItems(theme, WORK_ITEM_STATUSES, target.view.item.status).map((item) => ({ ...item, section: "Move to" })),
+      ]
+    : [];
   return (
-    <Modal title={item ? `Move #${item.number}` : "Move"} open={view !== null} onOpenChange={(open) => !open && props.onClose()}>
-      <Modal.Content>
-        {view && item ? (
-          <>
-            <Text style={styles.detailTitle} numberOfLines={2}>
-              {item.title}
-            </Text>
-            <View accessibilityRole="radiogroup" accessibilityLabel="Column" style={{ gap: 4 }}>
-              {WORK_ITEM_STATUSES.map((status) => {
-                const current = status === item.status;
-                const presentation = STATUS_PRESENTATION[status];
-                return (
-                  <Pressable
-                    key={status}
-                    accessibilityRole="radio"
-                    accessibilityState={{ checked: current, selected: current }}
-                    aria-checked={current}
-                    accessibilityLabel={WORK_ITEM_STATUS_LABELS[status]}
-                    onPress={() => {
-                      props.onClose();
-                      props.onMove(view, status);
-                    }}
-                    style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [
-                      styles.listRow,
-                      { borderColor: "transparent", backgroundColor: "transparent" },
-                      hovered || current ? { backgroundColor: theme.colors.surface1, borderColor: theme.colors.border } : null,
-                    ]}
-                  >
-                    <Icon name={presentation.icon} size={15} color={theme.colors[presentation.color]} />
-                    <Text style={[styles.body, { flex: 1, fontWeight: current ? "600" : "400" }]}>{WORK_ITEM_STATUS_LABELS[status]}</Text>
-                    {current ? <Icon name="Check" size={15} color={theme.colors.foregroundMuted} /> : null}
-                  </Pressable>
-                );
-              })}
-            </View>
-            <View style={styles.divider} />
-            <Button styles={styles} theme={theme} label="Open details" icon="PanelRight" variant="ghost" onPress={() => props.onOpenDetails(view)} />
-          </>
-        ) : null}
-      </Modal.Content>
-    </Modal>
+    <AnchoredMenu
+      theme={theme}
+      anchor={target?.anchor ?? null}
+      onClose={props.onClose}
+      label={target ? `#${target.view.item.number}` : "Card"}
+      items={items}
+      align="end"
+      onSelect={(key) => {
+        if (!target) return;
+        if (key === "edit") props.onEdit(target.view);
+        else if (key !== target.view.item.status) props.onMove(target.view, key as WorkItemStatus);
+      }}
+    />
   );
 }

@@ -1,31 +1,41 @@
 import type { PluginButtonContentProps, PluginButtonIconProps } from "@getpaseo/plugin/client";
 import { usePaseo, useWorkspace } from "@getpaseo/plugin/client";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { Icon, ScrollView as HostScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { WORK_ITEM_STATUS_LABELS } from "../shared/board";
 import type { WorkItemStatus } from "../shared/schema";
-import { Button } from "./components";
+import type { WorkItem } from "../shared/schema";
 import { useTodoDocument, useWorkItemViews, type WorkItemView } from "./data";
-import { ExecuteModal, type ExecuteSubmit } from "./execute-modal";
-import { useTodoImageStore } from "./images";
+import type { ExecuteSubmit } from "./execute-form";
+import { ExecuteModal } from "./execute-modal";
+import { openExecuteOverlay } from "./overlay-entries";
+import { TextAction } from "./overlay-parts";
+import { persistCardImages, useTodoImageStore } from "./images";
 import { resolveDraftIdentity, type DraftIdentity } from "./identity";
 import { resolveLaunchCapability } from "./launch-guard";
 import { useProjectCache } from "./projects";
-import { parseQuickAdd } from "./quick-add";
 import { useSidebarBadge } from "./sidebar-badge";
 import { buildPanelContents, needsYou, summarizeProject } from "./summary";
 import { useTodoStyles, type TodoStyles } from "./styles";
 import { AGGREGATE_PRESENTATION, PRIORITY_PRESENTATION, STATUS_PRESENTATION } from "./text";
 import { initiatorLabel, useLaunchWorkItem } from "./use-launch";
 import { useTodoActions } from "./use-todo-actions";
+import { EmbeddedNewItem, type EditorSubmit } from "./work-item-editor";
+
+/**
+ * The list's share of the panel on wide layouts: the host caps a popover at 440 points, less the
+ * padding and the footer. The embedded box takes what it needs above.
+ */
+const PANEL_MAX_HEIGHT = 368;
 
 /** The project a workspace belongs to; every panel is that project's, never the whole host. */
-function useWorkspaceProject(workspaceId: string): { projectId: string; projectDisplayName: string } | null {
+function useWorkspaceProject(workspaceId: string): { projectId: string; projectDisplayName: string; projectRootPath: string } | null {
   return (
     useWorkspace(workspaceId, (snapshot) => ({
       projectId: snapshot.projectId,
       projectDisplayName: snapshot.projectDisplayName,
+      projectRootPath: snapshot.projectRootPath,
     })) ?? null
   );
 }
@@ -71,37 +81,6 @@ export function TodoHeaderIcon({ workspaceId, size, color, theme }: PluginButton
   );
 }
 
-function QuickAdd(props: {
-  styles: TodoStyles;
-  placeholder: string;
-  busy: boolean;
-  onSubmit: (text: string) => void;
-  theme: PluginButtonContentProps["theme"];
-}) {
-  const [text, setText] = useState("");
-  const submit = () => {
-    if (props.busy || parseQuickAdd(text).title.length === 0) return;
-    props.onSubmit(text);
-    setText("");
-  };
-  return (
-    <View style={{ gap: 4 }}>
-      <TextInput
-        value={text}
-        onChangeText={setText}
-        onSubmitEditing={submit}
-        placeholder={props.placeholder}
-        placeholderTextColor={props.theme.colors.foregroundMuted}
-        autoFocus
-        blurOnSubmit={false}
-        editable={!props.busy}
-        style={[props.styles.input, { minHeight: 36 }]}
-      />
-      <Text style={[props.styles.mono, { fontSize: 11 }]}>Enter adds it · !1–!4 sets priority</Text>
-    </View>
-  );
-}
-
 function PanelRow(props: {
   styles: TodoStyles;
   theme: PluginButtonContentProps["theme"];
@@ -114,18 +93,20 @@ function PanelRow(props: {
   const aggregate = AGGREGATE_PRESENTATION[view.aggregate.state];
   return (
     // The row is not itself a button: it holds one, and a button inside a button is invalid HTML.
-    <View style={[styles.listRow, { gap: 8 }]}>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 5 }}>
       <Pressable
         onPress={props.onPress}
         accessibilityRole="button"
         accessibilityLabel={`#${view.item.number} ${view.item.title}`}
-        style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 8 }}
+        style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [
+          { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 7, marginHorizontal: -6, paddingHorizontal: 6, paddingVertical: 3 },
+          hovered ? { backgroundColor: theme.colors.surface2 } : null,
+        ]}
       >
         <Icon name={priority.icon} size={14} color={theme.colors[priority.color]} />
-        <Text style={[styles.metaText, { minWidth: 24 }]}>{`#${view.item.number}`}</Text>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text numberOfLines={1} style={styles.body}>
-            {view.item.title}
+          <Text numberOfLines={1} style={[styles.body, { fontSize: 13.5 }]}>
+            {`#${view.item.number} ${view.item.title}`}
           </Text>
           {view.aggregate.state === "idle" ? null : (
             <Text numberOfLines={1} style={styles.metaText}>
@@ -134,9 +115,7 @@ function PanelRow(props: {
           )}
         </View>
       </Pressable>
-      {props.onRun ? (
-        <Button styles={styles} theme={theme} label="Run" icon="Play" variant="primary" onPress={props.onRun} />
-      ) : null}
+      {props.onRun ? <TextAction theme={theme} label="Run" icon="Play" kind="accent" small onPress={props.onRun} /> : null}
     </View>
   );
 }
@@ -148,6 +127,10 @@ function PanelRow(props: {
  * It deliberately shows only In review, In progress and To do — the board is where Backlog, Done
  * and Cancelled live. Rows open the agent that is working on them; a panel cannot open a plugin
  * surface, so nothing here pretends to link to the board.
+ *
+ * Adding and running continue in boxes the host mounts over the page (`openOverlay`), which stay
+ * open after this popover closes. Hosts without that keep both inside the popover: an inline entry
+ * and the host-dialog execute form.
  */
 export function TodoHeaderPanel(props: PluginButtonContentProps) {
   const { theme } = props;
@@ -158,12 +141,12 @@ export function TodoHeaderPanel(props: PluginButtonContentProps) {
   const incarnationId = state.status === "ready" ? state.todo.incarnationId : "";
   const reload = state.reload;
   const actions = useTodoActions({ incarnationId, reload });
-  const [busy, setBusy] = useState(false);
-  const [execute, setExecute] = useState<WorkItemView | null>(null);
+  const [execute, setExecute] = useState<WorkItem | null>(null);
   const draft = useRef<DraftIdentity | null>(null);
   const paseo = usePaseo();
   const projectCache = useProjectCache(paseo);
   const imageStore = useTodoImageStore();
+  const toast = useToast();
   const capability = resolveLaunchCapability(props.navigation);
   const launcher = useLaunchWorkItem({
     paseo,
@@ -173,7 +156,6 @@ export function TodoHeaderPanel(props: PluginButtonContentProps) {
     initiatorLabel: initiatorLabel(props.layout.platform, props.host.label),
     capability,
     openAgent: props.navigation?.openAgent,
-    resolveImages: (refs) => imageStore.resolve(refs).map((image) => ({ data: image.data, mimeType: image.mimeType })),
   });
   const contents = useMemo(
     () => buildPanelContents(views.values(), project?.projectId ?? null),
@@ -181,30 +163,40 @@ export function TodoHeaderPanel(props: PluginButtonContentProps) {
   );
 
   const add = useCallback(
-    async (text: string) => {
-      if (!project) return;
-      const parsed = parseQuickAdd(text);
-      setBusy(true);
-      try {
-        const request = {
-          projectId: project.projectId,
-          projectNameSnapshot: project.projectDisplayName,
-          title: parsed.title,
-          details: parsed.details,
-          defaultPrompt: "",
-          status: "todo" as const,
-          priority: parsed.priority,
-        };
-        const identity = resolveDraftIdentity(draft.current, request);
-        draft.current = identity;
-        const created = await actions.create(request, identity.identity);
-        if (created) draft.current = null;
-      } finally {
-        setBusy(false);
+    async ({ execute: andExecute, images, ...input }: EditorSubmit): Promise<boolean> => {
+      // A new card: nothing of its own to drop, and no other card uses these fresh ids.
+      const refs = await persistCardImages(imageStore, images, [], new Set());
+      if (!refs) {
+        toast.error("Could not save the image data. Try again.");
+        return false;
       }
+      const identity = resolveDraftIdentity(draft.current, input);
+      draft.current = identity;
+      const created = await actions.create({ ...input, images: refs }, identity.identity);
+      if (!created) return false;
+      draft.current = null;
+      if (andExecute) runRef.current(created);
+      return true;
     },
-    [actions, project],
+    [actions, imageStore, toast],
   );
+
+  // Newer hosts mount boxes that outlive this popover; older ones keep everything inside it.
+  const openOverlay = props.navigation?.openOverlay;
+  const openSurface = props.navigation?.openSurface;
+  const run = (item: WorkItem) => {
+    if (!openOverlay) {
+      setExecute(item);
+      return;
+    }
+    props.close();
+    openExecuteOverlay(openOverlay, { item, workspaceId: props.workspaceId });
+  };
+  const runRef = useRef(run);
+  // How tall the embedded box is now, so the list under it takes the rest of the panel.
+  const [editorHeight, setEditorHeight] = useState(0);
+  const ListScroll = props.layout.compact ? View : HostScrollView;
+  runRef.current = run;
 
   const openAgent = useCallback(
     (view: WorkItemView) => {
@@ -224,24 +216,35 @@ export function TodoHeaderPanel(props: PluginButtonContentProps) {
     );
   }
   return (
-    <View style={{ gap: 8, paddingVertical: 8 }}>
-      <View style={{ paddingHorizontal: 10 }}>
-        <QuickAdd
+    <View style={{ gap: 6, paddingVertical: 8 }}>
+      {/* Hosts with overlays drop the phone sheet's title row; this small print says whose list it is. */}
+      {props.layout.compact && openOverlay ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingBottom: 2 }}>
+          <Text style={styles.metaText}>Todo ·</Text>
+          <Icon name="Folder" size={11} color={theme.colors.foregroundMuted} />
+          <Text style={[styles.metaText, { flexShrink: 1 }]} numberOfLines={1}>
+            {project.projectDisplayName}
+          </Text>
+        </View>
+      ) : null}
+      <View style={{ paddingHorizontal: 10 }} onLayout={(event) => setEditorHeight(event.nativeEvent.layout.height)}>
+        <EmbeddedNewItem
           styles={styles}
           theme={theme}
-          busy={busy}
-          placeholder={`Add a todo to ${project.projectDisplayName}…`}
-          onSubmit={(text) => void add(text)}
+          phone={props.layout.compact}
+          project={project}
+          onSubmit={add}
         />
       </View>
-      <ScrollView style={{ maxHeight: 260 }}>
+      {/* On wide layouts the list scrolls under the box, which stays in view; the host caps the
+          popover's height. A phone sheet scrolls its body itself, and a second vertical scroller
+          inside it would fight the sheet's drag. */}
+      <ListScroll {...(props.layout.compact ? {} : { style: { maxHeight: Math.max(140, PANEL_MAX_HEIGHT - editorHeight) } })}>
         {contents.groups.length === 0 ? (
-          <Text style={[styles.muted, { paddingHorizontal: 12, paddingVertical: 8 }]}>
-            Nothing written down for this project yet.
-          </Text>
+          <Text style={[styles.muted, { paddingHorizontal: 12, paddingVertical: 10 }]}>Nothing written down for this project yet.</Text>
         ) : null}
         {contents.groups.map((group) => (
-          <View key={group.status} style={{ paddingTop: 4 }}>
+          <View key={group.status} style={{ paddingTop: 6 }}>
             <GroupHeader styles={styles} theme={theme} status={group.status} count={group.views.length + group.overflow} />
             {group.views.map((view) => (
               <PanelRow
@@ -250,7 +253,7 @@ export function TodoHeaderPanel(props: PluginButtonContentProps) {
                 theme={theme}
                 view={view}
                 onPress={() => openAgent(view)}
-                onRun={group.status === "todo" ? () => setExecute(view) : undefined}
+                onRun={group.status === "todo" ? () => run(view.item) : undefined}
               />
             ))}
             {group.overflow > 0 ? (
@@ -258,22 +261,36 @@ export function TodoHeaderPanel(props: PluginButtonContentProps) {
             ) : null}
           </View>
         ))}
-      </ScrollView>
-      {contents.backlogCount > 0 ? (
-        <Text style={[styles.metaText, { paddingHorizontal: 12 }]}>{`${contents.backlogCount} in Backlog`}</Text>
+      </ListScroll>
+      {contents.backlogCount > 0 || openSurface ? (
+        <View style={{ flexDirection: "row", alignItems: "center", borderTopWidth: 1, borderTopColor: theme.colors.border, marginHorizontal: 10, paddingTop: 6, paddingHorizontal: 2 }}>
+          <Text style={[styles.metaText, { flex: 1 }]}>{contents.backlogCount > 0 ? `${contents.backlogCount} in Backlog` : ""}</Text>
+          {openSurface ? (
+            <TextAction
+              theme={theme}
+              small
+              kind="ghost"
+              label="Open board ›"
+              onPress={() => {
+                props.close();
+                openSurface("todo");
+              }}
+            />
+          ) : null}
+        </View>
       ) : null}
+      {/* Hosts without `openOverlay` run from here, in the host's own dialog. */}
       <ExecuteModal
         styles={styles}
         theme={theme}
-        open={execute !== null}
-        onOpenChange={(open) => !open && setExecute(null)}
-        item={execute?.item ?? null}
-        project={execute ? projectCache.projects.get(execute.item.projectId) : undefined}
+        item={execute}
+        onClose={() => setExecute(null)}
+        project={execute ? projectCache.projects.get(execute.projectId) : undefined}
         defaultWorkspaceId={props.workspaceId}
         canOpenComposer={capability.available}
         onSubmit={async (input: ExecuteSubmit) => {
           if (!execute) return false;
-          const started = await launcher.launch(execute.item, input);
+          const started = await launcher.launch(execute, input);
           // A direct run navigates to its agent, so the panel must not stay open on top of it.
           if (started) props.close();
           return started;
@@ -287,11 +304,10 @@ function GroupHeader(props: { styles: TodoStyles; theme: PluginButtonContentProp
   const presentation = STATUS_PRESENTATION[props.status];
   return (
     <View style={[props.styles.row, { paddingHorizontal: 12, paddingBottom: 2, gap: 6 }]}>
-      <Icon name={presentation.icon} size={12} color={props.theme.colors[presentation.color]} />
-      <Text style={[props.styles.metaText, { flex: 1, textTransform: "uppercase", letterSpacing: 0.4 }]}>
-        {WORK_ITEM_STATUS_LABELS[props.status]}
+      <Icon name={presentation.icon} size={11} color={props.theme.colors[presentation.color]} />
+      <Text style={[props.styles.metaText, { flex: 1, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.4 }]}>
+        {`${WORK_ITEM_STATUS_LABELS[props.status]} · ${props.count}`}
       </Text>
-      <Text style={props.styles.metaText}>{props.count}</Text>
     </View>
   );
 }

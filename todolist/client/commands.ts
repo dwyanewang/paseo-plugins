@@ -2,6 +2,7 @@ import type { PluginClientContext, PluginWorkspaceCommandContext } from "@getpas
 import { createWorkItem, ensureDocument } from "../shared/contracts";
 import { WORK_ITEM_PRIORITY_LABELS } from "../shared/board";
 import { resolveDraftIdentity } from "./identity";
+import { openNewItemOverlay } from "./overlay-entries";
 import { requestNewItem } from "./pending-new";
 import { parseQuickAdd } from "./quick-add";
 
@@ -15,7 +16,12 @@ import { parseQuickAdd } from "./quick-add";
 async function captureFromCommand(context: PluginWorkspaceCommandContext, text: string): Promise<void> {
   const draft = parseQuickAdd(text);
   if (!draft.title) {
-    // Nothing to name the card after: show the full editor instead of writing an empty card.
+    // Nothing to name the card after: show the full editor instead of writing an empty card, over
+    // the page the user is on where the host can; otherwise on the board.
+    if (context.openOverlay) {
+      openNewItemOverlay(context.openOverlay, { projectId: context.workspace.projectId, workspaceId: context.workspace.id });
+      return;
+    }
     requestNewItem(context.workspace.projectId);
     context.openSurface("todo");
     return;
@@ -72,7 +78,11 @@ export function addTodoCommands(client: PluginClientContext): () => void {
       keywords: ["todo", "capture", "new", "add", "work item"],
       // Mod+Shift+N is free: the built-ins hold A, B, D, E, F, G, P, T and W on Mod+Shift.
       shortcut: "Mod+Shift+N",
-      onSelect({ openSurface }) {
+      onSelect({ openSurface, openOverlay }) {
+        if (openOverlay) {
+          openNewItemOverlay(openOverlay, { projectId: null, workspaceId: null });
+          return;
+        }
         requestNewItem(null);
         openSurface("todo");
       },

@@ -20,11 +20,9 @@ export interface TodoStyles {
   segmentSelectedText: TextStyle;
   searchBox: ViewStyle;
   searchInput: TextStyle;
-  sectionTitle: TextStyle;
   card: ViewStyle;
   row: ViewStyle;
   rowWrap: ViewStyle;
-  title: TextStyle;
   body: TextStyle;
   muted: TextStyle;
   mono: TextStyle;
@@ -72,16 +70,12 @@ export interface TodoStyles {
   chipSelected: ViewStyle;
   chipText: TextStyle;
   chipSelectedText: TextStyle;
-  listRow: ViewStyle;
-  listRowSelected: ViewStyle;
   group: ViewStyle;
   selectRow: ViewStyle;
   rowLabel: TextStyle;
   rowValue: TextStyle;
   menu: ViewStyle;
   menuItem: ViewStyle;
-  section: ViewStyle;
-  sectionHeader: ViewStyle;
   detailTitle: TextStyle;
 }
 
@@ -151,11 +145,9 @@ export function useTodoStyles(theme: PluginTheme, compact: boolean): TodoStyles 
         flexBasis: 160,
       },
       searchInput: { flex: 1, color: colors.foreground, fontSize: 13, paddingVertical: 6, minWidth: 0 },
-      sectionTitle: { color: colors.foregroundMuted, fontSize: 11, fontWeight: "600", letterSpacing: 0.4, textTransform: "uppercase" },
       card: { backgroundColor: colors.surface1, borderColor: colors.border, borderWidth: 1, borderRadius: RADIUS.lg, padding: SPACE.md, gap: SPACE.sm },
       row: { flexDirection: "row", alignItems: "center", gap: SPACE.sm },
       rowWrap: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: SPACE.sm },
-      title: { color: colors.foreground, fontSize: 14, fontWeight: "600", flexShrink: 1 },
       body: { color: colors.foreground, fontSize: 13, lineHeight: 19 },
       muted: { color: colors.foregroundMuted, fontSize: 13 },
       mono: { color: colors.foregroundMuted, fontSize: 12 },
@@ -258,18 +250,6 @@ export function useTodoStyles(theme: PluginTheme, compact: boolean): TodoStyles 
       chipSelected: { backgroundColor: cardColor, borderColor: colors.foregroundMuted },
       chipText: { color: colors.foregroundMuted, fontSize: 12, fontWeight: "500" },
       chipSelectedText: { color: colors.foreground, fontSize: 12, fontWeight: "600" },
-      listRow: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: SPACE.sm + 2,
-        paddingVertical: SPACE.sm,
-        paddingHorizontal: SPACE.md,
-        borderRadius: RADIUS.md,
-        borderWidth: 1,
-        borderColor: colors.border,
-        backgroundColor: colors.surface1,
-      },
-      listRowSelected: { borderColor: colors.accent },
       // Rows of settings in one bordered card, like the host's settings cards.
       group: { backgroundColor: colors.surface1, borderColor: colors.border, borderWidth: 1, borderRadius: RADIUS.lg, overflow: "hidden" },
       selectRow: { flexDirection: "row", alignItems: "center", gap: SPACE.md, minHeight: 48, paddingHorizontal: 14, paddingVertical: SPACE.sm },
@@ -284,8 +264,6 @@ export function useTodoStyles(theme: PluginTheme, compact: boolean): TodoStyles 
         boxShadow: dark ? "0px 8px 24px rgba(0, 0, 0, 0.5)" : "0px 8px 24px rgba(0, 0, 0, 0.12)",
       },
       menuItem: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 40, paddingHorizontal: 10, paddingVertical: 8, borderRadius: RADIUS.sm },
-      section: { gap: SPACE.sm },
-      sectionHeader: { flexDirection: "row", alignItems: "center", gap: SPACE.sm, minHeight: 28 },
       detailTitle: { color: colors.foreground, fontSize: 17, fontWeight: "600", lineHeight: 24 },
     };
   }, [theme, compact]);

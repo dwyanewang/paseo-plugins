@@ -54,6 +54,14 @@ describe("direct execution", () => {
     const none = setup();
     await runWorkItemNow(none.input);
     expect(none.create.mock.calls[0][0]).not.toHaveProperty("images");
+    expect(none.create.mock.calls[0][0]).not.toHaveProperty("attachments");
+  });
+
+  it("hands staged image files to the agent as uploaded files it can open later", async () => {
+    const { input, create } = setup();
+    const file = { id: "img_a", fileName: "shot.png", mimeType: "image/png", size: 2, path: "/home/u/.paseo/plugin-data/todo/images/img_a.png" };
+    await runWorkItemNow({ ...input, images: [{ data: "aGk=", mimeType: "image/png" }], files: [file] });
+    expect(create.mock.calls[0][0].attachments).toEqual([{ type: "uploaded_file", ...file }]);
   });
 
   it("stops before the host when the claim request never gets a reply", async () => {

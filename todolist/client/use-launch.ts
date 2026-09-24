@@ -1,8 +1,11 @@
-import type { usePaseo } from "@getpaseo/plugin/client";
+import { useRpc, type usePaseo } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useCallback } from "react";
+import { stageImages, type StagedImageFile } from "../shared/contracts";
+import { appendImagePaths } from "../shared/prompt";
 import type { TodoImageRef, WorkItem } from "../shared/schema";
-import type { ExecuteSubmit } from "./execute-modal";
+import type { ExecuteSubmit } from "./execute-form";
+import { useTodoImageStore } from "./images";
 import { executeWorkItem, type ExecuteResult } from "./launch";
 import type { LaunchCapability } from "./launch-guard";
 import { runWorkItemNow } from "./run";
@@ -25,12 +28,10 @@ export interface LaunchContext {
   capability: LaunchCapability;
   /** Opens the agent a direct run created; absent on hosts without navigation. */
   openAgent?: ((input: { agentId: string }) => void) | undefined;
-  /** Resolves a card's image references to the bytes a direct run sends to the agent. */
-  resolveImages?: (refs: readonly TodoImageRef[]) => { data: string; mimeType: string }[];
 }
 
 /**
- * The one launch path every Todo surface uses: the board, the card detail, and the header panel.
+ * The one launch path every Todo surface uses: the board, the card panel, and the header panel.
  *
  * Keeping it in one place is not tidiness. Acquiring the claim, recording each request-start
  * before the request, and reading a lost reply as unknown are what stop one launch from becoming
@@ -44,7 +45,28 @@ export function useLaunchWorkItem(context: LaunchContext): {
   const { paseo, actions, incarnationId, reload, capability } = context;
   const label = context.initiatorLabel;
   const openAgent = context.openAgent;
-  const resolveImages = context.resolveImages;
+  const imageStore = useTodoImageStore();
+  const stage = useRpc(stageImages);
+
+  /**
+   * A card's images, inline and as files on the daemon host. Files are best effort: without them
+   * a direct run still sends the inline copy, and the composer opens with the text alone.
+   */
+  const prepareImages = useCallback(
+    async (refs: readonly TodoImageRef[]) => {
+      if (refs.length === 0) return { images: [], files: [] };
+      const images = imageStore.resolve(refs).map((image) => ({ data: image.data, mimeType: image.mimeType }));
+      let files: StagedImageFile[] = [];
+      try {
+        const staged = await stage({ ids: refs.map((ref) => ref.id) });
+        if (staged.status === "ok") files = staged.files;
+      } catch {
+        // An older server without the RPC, or a lost reply: fall through without files.
+      }
+      return { images, files };
+    },
+    [imageStore, stage],
+  );
 
   const describeResult = useCallback(
     (result: ExecuteResult) => {
@@ -91,9 +113,16 @@ export function useLaunchWorkItem(context: LaunchContext): {
         rpcs: actions.launchRpcs,
         onChange: () => void reload(),
       };
+      const { images, files } = await prepareImages(target.images);
       if (input.mode === "run") {
-        const images = resolveImages?.(target.images) ?? [];
-        const result = await runWorkItemNow({ ...shared, paseo, target: input.target, config: input.config, ...(images.length > 0 ? { images } : {}) });
+        const result = await runWorkItemNow({
+          ...shared,
+          paseo,
+          target: input.target,
+          config: input.config,
+          ...(images.length > 0 ? { images } : {}),
+          ...(files.length > 0 ? { files } : {}),
+        });
         await reload();
         if (result.status === "error") {
           toast.error(
@@ -108,7 +137,15 @@ export function useLaunchWorkItem(context: LaunchContext): {
         return true;
       }
       if (!capability.available) return false;
-      const result = await executeWorkItem({ ...shared, target: input.target, openAgentLaunch: capability.openAgentLaunch });
+      if (target.images.length > 0 && files.length === 0) {
+        toast.error("The card's images could not be prepared, so the composer opens without them.");
+      }
+      const result = await executeWorkItem({
+        ...shared,
+        seedPrompt: appendImagePaths(input.seedPrompt, files),
+        target: input.target,
+        openAgentLaunch: capability.openAgentLaunch,
+      });
       if (result.status === "unknown") {
         toast.error(`${result.message} Nothing was opened. Reload, then check the item before trying again.`);
         await reload();
@@ -121,7 +158,7 @@ export function useLaunchWorkItem(context: LaunchContext): {
       }
       return describeResult(result);
     },
-    [actions, capability, describeResult, incarnationId, label, openAgent, paseo, reload, resolveImages, toast],
+    [actions, capability, describeResult, incarnationId, label, openAgent, paseo, prepareImages, reload, toast],
   );
 
   return { launch, describeResult };

@@ -1,16 +1,17 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Modal } from "@getpaseo/plugin/client/react-native";
-import { SettingsSelect } from "@getpaseo/plugin/client/ui";
-import { useState } from "react";
-import { Text } from "react-native";
+import { useRef, useState } from "react";
+import { Text, TextInput, View } from "react-native";
 import { resolveInProgressIntent, type InProgressIntent } from "../shared/board";
 import { createId } from "../shared/ids";
 import { validateSeedPrompt } from "../shared/limits";
-import { Button, DialogActions, Field, Notice } from "./components";
 import type { WorkItemView } from "./data";
+import { PillSelect, PillStrip } from "./floating-menu";
 import type { FollowUpResult } from "./follow-up";
+import { MetaLine, Overlay, OverlayBox, useOverlay } from "./overlay";
+import { IconAction, InlineNote, KEYS, MetaText, TextAction } from "./overlay-parts";
 import type { TodoStyles } from "./styles";
-import { DISPLAY_STATE_PRESENTATION, TEXT } from "./text";
+import { DISPLAY_STATE_COLOR, DISPLAY_STATE_PRESENTATION, TEXT } from "./text";
+import { CardTextArea } from "./work-item-editor";
 
 export interface StartRequest {
   viewId: string;
@@ -21,11 +22,7 @@ export interface StartRequest {
 
 type Phase = { kind: "editing" } | { kind: "sending" } | { kind: "failed"; result: Exclude<FollowUpResult, { status: "sent" }> };
 
-/**
- * Continue an agent, or send the user to one waiting for approval. The card's live view is passed
- * in on every render, so the dialog notices when the agent starts running again before sending.
- */
-export function ContinueModal(props: {
+interface ContinueProps {
   styles: TodoStyles;
   theme: PluginTheme;
   request: StartRequest | null;
@@ -36,61 +33,67 @@ export function ContinueModal(props: {
   onExecuteInstead: (view: WorkItemView) => void;
   onSend: (input: { view: WorkItemView; agentId: string; text: string; messageId: string }) => Promise<FollowUpResult | null>;
   onCheck: (view: WorkItemView) => Promise<void>;
-}) {
-  const { request, view } = props;
-  const item = view?.item;
-  const title = !item || !request ? "Continue" : request.intent.kind === "permission" ? `#${item.number} needs approval` : `Continue #${item.number}`;
+}
+
+/**
+ * A word to an agent that is waiting on you, or a pointer to one waiting for approval. The card's
+ * live view is passed in on every render, so the box notices when the agent starts running again
+ * before sending.
+ */
+export function ContinueBox(props: ContinueProps) {
   return (
-    <Modal title={title} open={request !== null && view !== null} onOpenChange={(next) => !next && props.onClose()}>
-      <Modal.Content>
-        {/* The body mounts per opening, so its message ID and text start fresh every time. */}
-        {request && view ? <ContinueBody {...props} request={request} view={view} /> : null}
-      </Modal.Content>
-    </Modal>
+    <Overlay theme={props.theme} open={props.request !== null && props.view !== null} onClose={props.onClose} variant="box">
+      {/* The body mounts per opening, so its message ID and text start fresh every time. */}
+      {props.request && props.view ? <ContinueBody {...props} request={props.request} view={props.view} /> : null}
+    </Overlay>
   );
 }
 
-function ContinueBody(props: {
-  styles: TodoStyles;
-  theme: PluginTheme;
-  request: StartRequest;
-  view: WorkItemView;
-  onClose: () => void;
-  onMoveOnly: (view: WorkItemView) => void;
-  onOpenAgent: ((view: WorkItemView, agentId: string) => void) | null;
-  onExecuteInstead: (view: WorkItemView) => void;
-  onSend: (input: { view: WorkItemView; agentId: string; text: string; messageId: string }) => Promise<FollowUpResult | null>;
-  onCheck: (view: WorkItemView) => Promise<void>;
-}) {
+function agentLabel(view: WorkItemView, agentId: string): string {
+  const link = view.links.find((entry) => entry.agentId === agentId);
+  return link ? `${link.provider}${link.model ? ` · ${link.model}` : ""}` : agentId;
+}
+
+function ContinueBody(props: ContinueProps & { request: StartRequest; view: WorkItemView }) {
   const { styles, theme, request, view } = props;
+  const { phone } = useOverlay();
   const initialAgentId = request.intent.kind === "permission" ? request.intent.agentId : (request.intent.agentIds[0] ?? "");
   const [agentId, setAgentId] = useState(initialAgentId);
   const [text, setText] = useState("");
-  // One message ID per dialog: a retry after an unconfirmed send reuses it with the same text.
+  // One message ID per box: a retry after an unconfirmed send reuses it with the same text.
   const [messageId] = useState(() => createId("msg"));
   const [phase, setPhase] = useState<Phase>({ kind: "editing" });
   const [checking, setChecking] = useState(false);
+  const inputRef = useRef<TextInput | null>(null);
 
   const link = view.links.find((entry) => entry.agentId === agentId);
   const openAgent = props.onOpenAgent;
+  const presentation = link ? DISPLAY_STATE_PRESENTATION[link.displayState] : null;
 
   if (request.intent.kind === "permission") {
     return (
-      <>
-        <Text style={styles.detailTitle}>{view.item.title}</Text>
-        <Notice styles={styles} theme={theme} kind="warning">{TEXT.permissionNotice}</Notice>
-        <DialogActions styles={styles}>
-          <Button styles={styles} theme={theme} label="Cancel" onPress={props.onClose} />
-          {request.move ? <Button styles={styles} theme={theme} label="Move only" onPress={() => props.onMoveOnly(view)} /> : null}
-          {openAgent ? (
-            <Button styles={styles} theme={theme} label={request.move ? "Move and open agent" : "Open agent"} icon="Bot" variant="primary" onPress={() => openAgent(view, agentId)} />
-          ) : null}
-        </DialogActions>
-      </>
+      <OverlayBox
+        size="narrow"
+        accessibilityLabel={`#${view.item.number} needs approval`}
+        meta={
+          <MetaLine theme={theme}>
+            <MetaText theme={theme} parts={[`#${view.item.number} needs approval`]} />
+          </MetaLine>
+        }
+        footer={
+          <View style={{ flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 8, marginTop: 12 }}>
+            {request.move ? <TextAction theme={theme} label="Move only" kind="ghost" onPress={() => props.onMoveOnly(view)} /> : null}
+            {openAgent ? <TextAction theme={theme} label={request.move ? "Move and open agent" : "Open agent"} icon="Bot" kind="accent" onPress={() => openAgent(view, agentId)} /> : null}
+          </View>
+        }
+      >
+        <Text style={{ color: theme.colors.foreground, fontSize: 15, fontWeight: "600", lineHeight: 21, paddingHorizontal: 2 }}>{view.item.title}</Text>
+        <InlineNote theme={theme}>{TEXT.permissionNotice}</InlineNote>
+      </OverlayBox>
     );
   }
 
-  // Re-checked on every render from the live card: an agent that started running since the dialog
+  // Re-checked on every render from the live card: an agent that started running since the box
   // opened must not receive a message, which would interrupt its turn.
   const live = resolveInProgressIntent(view);
   const stillIdle = live.kind === "continue" && live.agentIds.includes(agentId);
@@ -110,94 +113,98 @@ function ContinueBody(props: {
     else if (result.status !== "sent") setPhase({ kind: "failed", result });
   }
 
-  const presentation = link ? DISPLAY_STATE_PRESENTATION[link.displayState] : null;
+  const sendLabel = sending ? "Sending…" : request.move ? "Send and move" : "Send";
   return (
-    <>
-      <Text style={styles.detailTitle}>{view.item.title}</Text>
-      {candidates.length > 1 ? (
-        <SettingsSelect
-          label="Agent"
-          value={agentId}
-          options={candidates.map((id) => {
-            const entry = view.links.find((candidate) => candidate.agentId === id);
-            return { value: id, label: entry ? `${entry.provider}${entry.model ? ` · ${entry.model}` : ""} · ${DISPLAY_STATE_PRESENTATION[entry.displayState].label}` : id };
-          })}
-          onValueChange={setAgentId}
-          disabled={locked}
-        />
-      ) : null}
-      {link && presentation ? (
-        <Text style={styles.mono}>
-          {link.provider}
-          {link.model ? ` · ${link.model}` : ""} · {presentation.label}
-        </Text>
-      ) : null}
-      {link?.displayState === "closed" ? <Notice styles={styles} theme={theme}>{TEXT.followUpReopenNotice}</Notice> : null}
-      {!stillIdle && !failed ? (
-        <Notice styles={styles} theme={theme} kind="warning">{nowRunning ? TEXT.followUpBusyNotice : TEXT.followUpUnreachableNotice}</Notice>
-      ) : null}
-      <Field
-        styles={styles}
+    <OverlayBox
+      size="narrow"
+      accessibilityLabel={`Continue #${view.item.number}`}
+      scroll={false}
+      meta={
+        <MetaLine theme={theme}>
+          <MetaText
+            theme={theme}
+            parts={[
+              `Continue #${view.item.number}`,
+              link && presentation ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: theme.colors[DISPLAY_STATE_COLOR[link.displayState]] }} />
+                  <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{presentation.label}</Text>
+                </View>
+              ) : null,
+            ]}
+          />
+        </MetaLine>
+      }
+    >
+      <CardTextArea
         theme={theme}
-        label="Message"
+        inputRef={inputRef}
         value={text}
         onChangeText={setText}
-        multiline
-        editable={!locked}
         placeholder="What should the agent do next?"
-        {...(locked ? { hint: "Locked after sending, so a retry sends exactly the same message." } : {})}
+        accessibilityLabel="Message"
+        autoFocus={!phone}
+        editable={!locked}
+        onSubmitKey={() => void send()}
       />
+      {link?.displayState === "closed" ? <InlineNote theme={theme} kind="info">{TEXT.followUpReopenNotice}</InlineNote> : null}
+      {!stillIdle && !failed ? <InlineNote theme={theme}>{nowRunning ? TEXT.followUpBusyNotice : TEXT.followUpUnreachableNotice}</InlineNote> : null}
+      {locked && !sending ? <InlineNote theme={theme} kind="info">Locked after sending, so a retry sends exactly the same message.</InlineNote> : null}
       {failed?.status === "unknown" ? (
-        <Notice styles={styles} theme={theme} kind="warning" title="Delivery not confirmed">
-          {failed.replayRefused
-            ? TEXT.followUpReplayRefusedNotice
-            : stillIdle
-              ? TEXT.followUpUnknownNotice
-              : nowRunning
-                ? TEXT.followUpArrivedNotice
-                : TEXT.followUpUnreachableNotice}
-        </Notice>
+        <InlineNote
+          theme={theme}
+          trailing={
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+              <TextAction
+                theme={theme}
+                small
+                label={checking ? "Checking…" : "Check status"}
+                icon="RefreshCw"
+                disabled={checking}
+                onPress={() => {
+                  setChecking(true);
+                  void props.onCheck(view).finally(() => setChecking(false));
+                }}
+              />
+              {!failed.replayRefused && stillIdle ? <TextAction theme={theme} small label="Retry the same message" icon="RotateCcw" onPress={() => void send()} /> : null}
+            </View>
+          }
+        >
+          {`Delivery not confirmed. ${failed.replayRefused ? TEXT.followUpReplayRefusedNotice : stillIdle ? TEXT.followUpUnknownNotice : nowRunning ? TEXT.followUpArrivedNotice : TEXT.followUpUnreachableNotice}`}
+        </InlineNote>
       ) : null}
-      {failed ? <Text style={styles.mono}>Paseo said: {failed.message}</Text> : null}
-      {failed?.status === "conflict" ? (
-        <Notice styles={styles} theme={theme} kind="danger" title="Message ID already used">{failed.message}</Notice>
-      ) : null}
-      <Text style={styles.mono}>{TEXT.followUpNotice}</Text>
-      {failed ? (
-        <DialogActions styles={styles}>
-          <Button styles={styles} theme={theme} label="Close" onPress={props.onClose} />
-          <Button
-            styles={styles}
+      {failed?.status === "conflict" ? <InlineNote theme={theme} kind="danger">{`Message ID already used. ${failed.message}`}</InlineNote> : null}
+      {failed && failed.status !== "conflict" ? <Text style={[styles.mono, { marginTop: 6, marginHorizontal: 2 }]}>Paseo said: {failed.message}</Text> : null}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10 }}>
+        <PillStrip theme={theme}>
+          <PillSelect
             theme={theme}
-            label={checking ? "Checking…" : "Check status"}
-            icon="RefreshCw"
-            disabled={checking}
-            onPress={() => {
-              setChecking(true);
-              void props.onCheck(view).finally(() => setChecking(false));
-            }}
+            label="Agent"
+            icon="Bot"
+            text={agentLabel(view, agentId)}
+            disabled={locked || candidates.length < 2}
+            items={candidates.map((id) => {
+              const entry = view.links.find((candidate) => candidate.agentId === id);
+              return {
+                key: id,
+                label: agentLabel(view, id),
+                ...(entry ? { hint: DISPLAY_STATE_PRESENTATION[entry.displayState].label } : {}),
+                checked: id === agentId,
+              };
+            })}
+            onSelect={setAgentId}
           />
-          {openAgent ? <Button styles={styles} theme={theme} label="Open agent" icon="Bot" onPress={() => openAgent(view, agentId)} /> : null}
-          {failed.status === "unknown" && !failed.replayRefused && stillIdle ? (
-            <Button styles={styles} theme={theme} label="Retry the same message" icon="RotateCcw" variant="primary" onPress={() => void send()} />
-          ) : null}
-        </DialogActions>
-      ) : (
-        <DialogActions styles={styles}>
-          <Button styles={styles} theme={theme} label="Cancel" disabled={sending} onPress={props.onClose} />
-          <Button styles={styles} theme={theme} label="Start a new run instead" icon="Play" disabled={sending} onPress={() => props.onExecuteInstead(view)} />
-          {request.move ? <Button styles={styles} theme={theme} label="Move only" disabled={sending} onPress={() => props.onMoveOnly(view)} /> : null}
-          <Button
-            styles={styles}
-            theme={theme}
-            label={sending ? "Sending…" : request.move ? "Send and move" : "Send"}
-            icon="Send"
-            variant="primary"
-            disabled={sending || Boolean(invalid) || !stillIdle}
-            onPress={() => void send()}
-          />
-        </DialogActions>
-      )}
-    </>
+        </PillStrip>
+        {failed ? (
+          openAgent ? <TextAction theme={theme} label="Open agent" icon="Bot" onPress={() => openAgent(view, agentId)} /> : null
+        ) : (
+          <>
+            {request.move ? <TextAction theme={theme} label="Move only" kind="ghost" disabled={sending} onPress={() => props.onMoveOnly(view)} /> : null}
+            <IconAction theme={theme} icon="Play" label="Start a new run instead" tip="Start a new run instead" kind="outline" disabled={sending} onPress={() => props.onExecuteInstead(view)} />
+            <IconAction theme={theme} icon="Send" label={sendLabel} tip={sendLabel} keys={KEYS.submit} kind="round" disabled={sending || Boolean(invalid) || !stillIdle} onPress={() => void send()} />
+          </>
+        )}
+      </View>
+    </OverlayBox>
   );
 }

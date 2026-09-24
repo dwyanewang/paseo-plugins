@@ -22,6 +22,7 @@ export function TodoPanel({ theme, host, layout, navigation, workspaceId }: Plug
       theme={theme}
       compact={layout.compact}
       platform={layout.platform}
+      insets={layout.insets}
       host={host}
       navigation={navigation}
       projectFilter={workspace.projectId}

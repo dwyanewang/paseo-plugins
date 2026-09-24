@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PROMPT_MAX_BYTES, validateSeedPrompt } from "../shared/limits";
-import { deriveSeedPrompt } from "../shared/prompt";
+import { appendImagePaths, deriveSeedPrompt } from "../shared/prompt";
 
 describe("Todo launch seed prompt", () => {
   it("uses an explicit non-blank default prompt", () => {
@@ -40,5 +40,17 @@ describe("Todo launch seed prompt", () => {
       field: "seedPrompt",
       reason: "too_long",
     });
+  });
+});
+
+describe("Todo image paths in a composer prompt", () => {
+  it("lists each staged file after the prompt", () => {
+    expect(appendImagePaths("Build the page", [{ path: "/p/img_a.png" }, { path: "/p/img_b.jpg" }])).toBe(
+      "Build the page\n\nImages attached to this task (open them to view):\n- /p/img_a.png\n- /p/img_b.jpg",
+    );
+  });
+
+  it("leaves the prompt alone without files", () => {
+    expect(appendImagePaths("Build the page", [])).toBe("Build the page");
   });
 });

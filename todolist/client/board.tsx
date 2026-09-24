@@ -7,8 +7,20 @@ import type { WorkItemStatus } from "../shared/schema";
 import { DragHandle, useBoardDrag, type BoardDrag } from "./board-dnd";
 import { Button, Chip, IconButton } from "./components";
 import type { WorkItemView } from "./data";
+import { measureInWindow, type Rect } from "./overlay";
 import type { TodoStyles } from "./styles";
 import { STATUS_PRESENTATION } from "./text";
+
+/** Wraps a button whose press opens a menu next to it, handing that menu the button's place. */
+function Anchored(props: { onPress: (anchor: Rect) => void; children: (press: () => void) => ReactNode }) {
+  const ref = useRef<View | null>(null);
+  const onPress = props.onPress;
+  return (
+    <View ref={ref} collapsable={false}>
+      {props.children(() => void measureInWindow(ref.current).then((anchor) => anchor && onPress(anchor)))}
+    </View>
+  );
+}
 
 /** Room under side-scrolling columns for the horizontal scroll bar. */
 const SCROLLBAR_ROOM = 14;
@@ -80,7 +92,8 @@ function Column(props: {
   style: ViewStyle;
   renderCard: RenderCard;
   /** The column's "+": create in Backlog and To do, pick existing cards for In progress and Done. */
-  onAdd: (status: WorkItemStatus) => void;
+  /** A column's "+", with the button that was pressed for menus that open next to it. */
+  onAdd: (status: WorkItemStatus, anchor: Rect) => void;
   /** Present on wide layouts only. */
   drag: BoardDrag | null;
   refresh?: { refreshing: boolean; onRefresh: () => void };
@@ -108,13 +121,17 @@ function Column(props: {
         </View>
         <View style={{ flex: 1 }} />
         {add ? (
-          <IconButton
-            styles={styles}
-            theme={theme}
-            icon="Plus"
-            label={add.kind === "create" ? `New item in ${label}` : `Add existing cards to ${label}`}
-            onPress={() => props.onAdd(column.status)}
-          />
+          <Anchored onPress={(anchor) => props.onAdd(column.status, anchor)}>
+            {(press) => (
+              <IconButton
+                styles={styles}
+                theme={theme}
+                icon="Plus"
+                label={add.kind === "create" ? `New item in ${label}` : `Add existing cards to ${label}`}
+                onPress={press}
+              />
+            )}
+          </Anchored>
         ) : null}
       </View>
       <ColumnCards
@@ -144,7 +161,8 @@ export function TodoBoard(props: {
   width: number;
   height: number;
   renderCard: RenderCard;
-  onAdd: (status: WorkItemStatus) => void;
+  /** A column's "+", with the button that was pressed for menus that open next to it. */
+  onAdd: (status: WorkItemStatus, anchor: Rect) => void;
   onDrop: (view: WorkItemView, status: WorkItemStatus) => void;
   /** The phone board's tab, kept by the screen so New can create in the column on show. */
   tab: WorkItemStatus | null;
@@ -204,7 +222,15 @@ export function TodoBoard(props: {
             drag={null}
             dropTarget={false}
             contentStyle={{ paddingBottom: 16 }}
-            {...(pick ? { header: <Button styles={styles} theme={theme} label={pick.label} icon={pick.icon} onPress={() => props.onAdd(active.status)} /> } : {})}
+            {...(pick
+              ? {
+                  header: (
+                    <Anchored onPress={(anchor) => props.onAdd(active.status, anchor)}>
+                      {(press) => <Button styles={styles} theme={theme} label={pick.label} icon={pick.icon} onPress={press} />}
+                    </Anchored>
+                  ),
+                }
+              : {})}
             {...(props.refresh ? { refresh: props.refresh } : {})}
           />
         ) : null}

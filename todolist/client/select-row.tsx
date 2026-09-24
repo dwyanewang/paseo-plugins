@@ -35,7 +35,7 @@ interface Rect {
  * React Native Web modal sits outside that dialog. The choices open inline under the row there, so
  * focus and Escape stay with the dialog; native apps float them like the host's own dropdowns.
  */
-const INLINE_MENU = Platform.OS === "web";
+export const INLINE_MENU = Platform.OS === "web";
 
 /** Room kept between the menu and the screen edges, and between the menu and its row. */
 const EDGE = 8;
@@ -52,19 +52,6 @@ export function RowGroup(props: { styles: TodoStyles; children: ReactNode }) {
           {row}
         </Fragment>
       ))}
-    </View>
-  );
-}
-
-/** A label on the left and a read-only value on the right. */
-export function InfoRow(props: { styles: TodoStyles; label: string; children: ReactNode }) {
-  const { styles } = props;
-  return (
-    <View style={styles.selectRow}>
-      <Text style={[styles.rowLabel, { flexShrink: 0, maxWidth: "45%" }]} numberOfLines={1}>
-        {props.label}
-      </Text>
-      <View style={{ flex: 1, minWidth: 0, alignItems: "flex-end" }}>{props.children}</View>
     </View>
   );
 }
@@ -193,8 +180,9 @@ function SelectMenu<Value extends string>(props: {
   const screen = Dimensions.get("window");
   const width = Math.min(Math.max(220, Math.min(300, anchor.width * 0.7)), screen.width - EDGE * 2);
   const maxHeight = Math.min(360, screen.height * 0.6);
-  // Right-aligned with its row, below it when it fits and above it otherwise.
-  const left = Math.min(Math.max(EDGE, anchor.x + anchor.width - width - EDGE), screen.width - width - EDGE);
+  // Lined up with its anchor, below it when it fits and above it otherwise.
+  const preferred = anchor.x + anchor.width - width - EDGE;
+  const left = Math.min(Math.max(EDGE, preferred), screen.width - width - EDGE);
   const below = anchor.y + anchor.height + GAP;
   const top =
     height === null || below + height <= screen.height - EDGE

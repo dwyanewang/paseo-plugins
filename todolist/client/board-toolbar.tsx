@@ -1,9 +1,11 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Icon, Modal, TextInput } from "@getpaseo/plugin/client/react-native";
-import { useState } from "react";
+import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
+import { useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { BOARD_FILTERS, type BoardFilter } from "../shared/board";
-import { Button, IconButton, Segmented, Select } from "./components";
+import { Button, IconButton, Segmented } from "./components";
+import { AnchoredMenu } from "./floating-menu";
+import { measureInWindow, type Rect } from "./overlay";
 import type { TodoStyles } from "./styles";
 
 export interface ProjectOption {
@@ -13,7 +15,10 @@ export interface ProjectOption {
   available: boolean;
 }
 
-/** A chip that shows the current value and opens a picker; without `onPress` it is a plain label. */
+/**
+ * A chip that shows the current value and opens a menu next to itself; without `onPress` it is a
+ * plain label.
+ */
 function DropdownChip(props: {
   styles: TodoStyles;
   theme: PluginTheme;
@@ -21,9 +26,10 @@ function DropdownChip(props: {
   label: string;
   highlighted: boolean;
   accessibilityLabel: string;
-  onPress: (() => void) | null;
+  onPress: ((anchor: Rect) => void) | null;
 }) {
   const { styles, theme } = props;
+  const chipRef = useRef<View | null>(null);
   const content = (
     <>
       {props.icon ? <Icon name={props.icon} size={13} color={props.highlighted ? theme.colors.foreground : theme.colors.foregroundMuted} /> : null}
@@ -43,9 +49,13 @@ function DropdownChip(props: {
   }
   return (
     <Pressable
+      ref={chipRef}
       accessibilityRole="button"
       accessibilityLabel={props.accessibilityLabel}
-      onPress={props.onPress}
+      onPress={() => {
+        const onPress = props.onPress;
+        if (onPress) void measureInWindow(chipRef.current).then((anchor) => anchor && onPress(anchor));
+      }}
       style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [chip, hovered ? { borderColor: theme.colors.foregroundMuted } : null]}
     >
       {content}
@@ -62,10 +72,11 @@ export function BoardToolbar(props: {
   styles: TodoStyles;
   theme: PluginTheme;
   compact: boolean;
-  /** Label of the current project filter; with `onPickProject` null (the workspace panel) it is fixed. */
+  /** Label of the current project filter; without `projects` (the workspace panel) it is fixed. */
   projectLabel: string;
   projectFiltered: boolean;
-  onPickProject: (() => void) | null;
+  /** The project filter's choices; the first, value "", stands for every project. */
+  projects: { options: readonly ProjectOption[]; value: string; onChange: (projectId: string) => void } | null;
   filter: BoardFilter;
   onFilter: (filter: BoardFilter) => void;
   query: string;
@@ -77,7 +88,8 @@ export function BoardToolbar(props: {
 }) {
   const { styles, theme } = props;
   const [searchOpen, setSearchOpen] = useState(false);
-  const [pickingFilter, setPickingFilter] = useState(false);
+  const [menu, setMenu] = useState<{ kind: "filter" | "project"; anchor: Rect } | null>(null);
+  const projects = props.projects;
   const project = (
     <DropdownChip
       styles={styles}
@@ -85,9 +97,37 @@ export function BoardToolbar(props: {
       icon="Folder"
       label={props.projectLabel}
       highlighted={props.projectFiltered}
-      accessibilityLabel={props.onPickProject ? `Project filter: ${props.projectLabel}. Change` : `Project: ${props.projectLabel}`}
-      onPress={props.onPickProject}
+      accessibilityLabel={projects ? `Project filter: ${props.projectLabel}. Change` : `Project: ${props.projectLabel}`}
+      onPress={projects ? (anchor) => setMenu({ kind: "project", anchor }) : null}
     />
+  );
+  const menus = (
+    <>
+      <AnchoredMenu
+        theme={theme}
+        anchor={menu?.kind === "filter" ? menu.anchor : null}
+        onClose={() => setMenu(null)}
+        label="Show"
+        items={BOARD_FILTERS.map((entry) => ({ key: entry.value, label: entry.label, checked: entry.value === props.filter, section: "Show" }))}
+        onSelect={(key) => props.onFilter(key as BoardFilter)}
+      />
+      <AnchoredMenu
+        theme={theme}
+        anchor={menu?.kind === "project" ? menu.anchor : null}
+        onClose={() => setMenu(null)}
+        label="Project filter"
+        width={300}
+        items={(projects?.options ?? []).map((option) => ({
+          key: option.value,
+          label: option.label,
+          ...(option.hint ? { hint: option.hint } : {}),
+          icon: option.value === "" ? "Layers" : option.available ? "Folder" : "FolderX",
+          checked: option.value === projects?.value,
+        }))}
+        filter={{ placeholder: "Filter projects…", noun: "projects" }}
+        onSelect={(key) => projects?.onChange(key)}
+      />
+    </>
   );
   const search = (autoFocus: boolean) => (
     <View style={[styles.searchBox, props.compact ? null : { maxWidth: 280 }]}>
@@ -123,7 +163,7 @@ export function BoardToolbar(props: {
             label={filterLabel}
             highlighted={props.filter !== "active"}
             accessibilityLabel={`Board filter: ${filterLabel}. Change`}
-            onPress={() => setPickingFilter(true)}
+            onPress={(anchor) => setMenu({ kind: "filter", anchor })}
           />
           <View style={{ flex: 1 }} />
           <IconButton
@@ -142,21 +182,7 @@ export function BoardToolbar(props: {
           <IconButton styles={styles} theme={theme} icon="Plus" label="New" primary disabled={!props.canCreate} onPress={props.onCreate} />
         </View>
         {showSearch ? <View style={styles.row}>{search(searchOpen && props.query === "")}</View> : null}
-        <Modal title="Show" open={pickingFilter} onOpenChange={setPickingFilter}>
-          <Modal.Content>
-            <Select
-              styles={styles}
-              theme={theme}
-              label="Board filter"
-              value={props.filter}
-              options={BOARD_FILTERS}
-              onChange={(next) => {
-                props.onFilter(next);
-                setPickingFilter(false);
-              }}
-            />
-          </Modal.Content>
-        </Modal>
+        {menus}
       </View>
     );
   }
@@ -169,35 +195,7 @@ export function BoardToolbar(props: {
         {reload}
         <Button styles={styles} theme={theme} label="New" icon="Plus" variant="primary" disabled={!props.canCreate} onPress={props.onCreate} />
       </View>
+      {menus}
     </View>
-  );
-}
-
-export function ProjectPicker(props: {
-  styles: TodoStyles;
-  theme: PluginTheme;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  /** The first option, value "", stands for every project. */
-  options: readonly ProjectOption[];
-  value: string;
-  onChange: (projectId: string) => void;
-}) {
-  return (
-    <Modal title="Project filter" open={props.open} onOpenChange={props.onOpenChange}>
-      <Modal.Content>
-        <Select
-          styles={props.styles}
-          theme={props.theme}
-          label="Show cards from"
-          value={props.value}
-          options={props.options}
-          onChange={(projectId) => {
-            props.onChange(projectId);
-            props.onOpenChange(false);
-          }}
-        />
-      </Modal.Content>
-    </Modal>
   );
 }

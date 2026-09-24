@@ -31,10 +31,14 @@ needs:
 | `server/mutations.ts`, `server/apply.ts` | Pure mutations; snapshot apply with correlation discovery ahead of the projection gate. |
 | `server/reconcile.ts` | Bootstrap scan (single subscribe), live upserts/removes, targeted refresh, periodic scan ∪ known-ID refresh, in-process watermarks and dirty reruns, bounded timeline search. |
 | `client/run.ts` | Direct run: acquire, request-start milestones, `workspace.agents.create`, agent-observation. Same attempt records the composer path writes. |
-| `client/board*.tsx`, `client/card-detail.tsx`, `client/move-menu.tsx`, `client/card-picker.tsx` | Board view: project filter, status filters and search, full-height columns that scroll their own cards (side by side, scrolling sideways, or status tabs by width), cards, pointer drag between columns on wide layouts, the move menu, the card picker behind a column's "+", and the card detail. |
-| `client/select-row.tsx` | The dropdown row used by the card detail, execute dialog and editor: label left, truncated value right, and a floating menu of choices. |
+| `client/overlay.tsx`, `client/overlay-parts.tsx`, `client/floating-menu.tsx` | Every Todo pop-up is drawn by the plugin, not the host dialog: on the host's `Overlay` layer where it exists (the host owns focus, Escape, Back and stacking), otherwise a React Native modal with the focus guard `guardModalWeb`; menus inside a box close first on Escape, Back or a press outside, the bare box (small print on top, content that scrolls, a footer that stays, the round × outside its corner; 680 or 440 wide, pinned to the top on phones), menus next to their button, pills with floating menus (filter, sections, multiple choice, a note on top) in one row that scrolls sideways (touch; a mouse drag or the wheel on the web) with faded edges, icon and labelled buttons, one-line notes, and the confirmation box. |
+| `client/board*.tsx`, `client/card-panel.tsx`, `client/move-menu.tsx`, `client/card-picker.tsx` | Board view: project filter and status filter menus, search, full-height columns that scroll their own cards (side by side, scrolling sideways, or status tabs by width), cards, pointer drag between columns on wide layouts, the card menu (Edit, Move to), the card menu behind a column's "+", and the card panel: details and editing in one box, with status, priority and project (rebind) pills, the agent and every attempt. |
+| `client/work-item-editor.tsx`, `client/image-attachments.tsx` | The new-item form, in the New box and embedded at the top of the header panel (project fixed to the workspace's with no pill for it, a draft kept per project, cleared after each card), and the pieces the card panel edits with: text that grows up to a cap, attached images, and one tool row with "+", the project, column and priority pills and icon-only actions. A closed new-item box keeps its draft. Image drafts (chooser, paste, drop) are shared with the header panel. |
+| `client/overlay-entries.tsx` | The new-item and execute boxes the host mounts with `openOverlay`, over whatever page is open: the execute box from the header panel (Run, Create & run), the new-item box from `/todo` or "New todo…" without text. |
+| `client/execute-form.ts`, `client/execute-box.tsx`, `client/execute-modal.tsx`, `client/select-row.tsx` | Starting a run: the shared form logic, the execute box (prompt on top, launch / workspace / model / mode / thinking pills), and the older host-dialog layout with its select rows, kept only for the header panel on hosts without `openOverlay`. |
+| `server/image-files.ts` | `todo.images.stage`: writes card images to files on the daemon host for a launch. |
 | `client/styles.ts`, `client/components.tsx` | Shared look: spacing and type scale, surfaces derived from the host theme (light or dark), and the buttons, chips, segmented filter, notices, fields and radio lists every screen uses. |
-| `client/continue-modal.tsx`, `client/follow-up.ts` | Moving into In progress: the follow-up and approval dialog, and the stable-message-ID send. |
+| `client/continue-modal.tsx`, `client/follow-up.ts` | Moving into In progress: the follow-up and approval box, and the stable-message-ID send. |
 | `client/` | React Native surface, sidebar item, workspace panel, settings screen, launch flows, recovery screen. |
 
 ## Trust and data lifecycle
@@ -54,10 +58,15 @@ needs:
   worktree cut for this run in git projects, and sends the prompt as its first message; **In the
   composer** seeds the native draft and you press send. Both write the same claim, attempt and
   correlation labels, so they read and reconcile identically.
-- A card can carry images (PNG, JPEG, GIF, WebP) that describe the work. Picking needs the
-  desktop or web app (native surfaces have no file chooser). Images are sent to the agent only on
-  **Run now**, as attachments to its first message; the composer path is text-only. Bytes live in
-  the `todo-images` document and are capped per image and per card by `shared/limits.ts`.
+- A card can carry images (PNG, JPEG, GIF, WebP) that describe the work, from the board editor or
+  the workspace header panel: the "+" chooser, paste, or drop. That needs the desktop or web app
+  (native surfaces have no file chooser). An image over the size cap is scaled down to a 1568px
+  edge and re-encoded rather than refused. Bytes live in the `todo-images` document and are capped
+  per image and per card by `shared/limits.ts`.
+- At launch the server writes the card's images to `$PASEO_HOME/plugin-data/todo/images/` (named by
+  image id, never rewritten, orphans removed). **Run now** sends each image inline and as an
+  `uploaded_file` attachment with that path, since some providers drop inline images from later
+  turns; **In the composer** takes text only, so the paths are appended to the prompt.
 - A new worktree gets a branch named after the card (`todo-<number>-<title>-<suffix>`, editable) from
   the project's default branch unless another base is given. Creating the worktree is a
   request-start: if it fails, the attempt is `outcome_unknown` and nothing is retried.
