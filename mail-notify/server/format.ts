@@ -12,7 +12,8 @@ export function providerName(provider: string): string {
 }
 
 export function durationLabel(durationMs: number): string {
-  const minutes = Math.max(0, Math.floor(durationMs / 60_000));
+  if (durationMs < 60_000) return `${Math.max(1, Math.round(durationMs / 1_000))} 秒`;
+  const minutes = Math.floor(durationMs / 60_000);
   if (minutes < 60) return `${minutes} 分钟`;
   return `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟`;
 }
@@ -30,6 +31,11 @@ export function workspaceLabel(workspace: NotificationWorkspace | null): { proje
   };
 }
 
+// A turn that began before the plugin loaded has no known start; its duration is left out.
+function durationSuffix(record: NotificationRecord): string {
+  return record.durationMs === undefined ? "" : ` · ${durationLabel(record.durationMs)}`;
+}
+
 export function formatRecord(record: NotificationRecord): string {
   const { project, branch } = workspaceLabel(record.workspace);
   const provider = providerName(record.provider);
@@ -38,11 +44,11 @@ export function formatRecord(record: NotificationRecord): string {
   }
   if (record.kind === "failed") {
     const suffix = record.errorFirstLine ? `\n   ${record.errorFirstLine}` : "";
-    return `❌ ${project} · ${branch} · ${provider} 失败 · ${durationLabel(record.durationMs ?? 0)}${suffix}`;
+    return `❌ ${project} · ${branch} · ${provider} 失败${durationSuffix(record)}${suffix}`;
   }
   const running = record.runningRootCount ?? 0;
   const status = running > 0 ? `本分支还有 ${running} 个在跑` : "本分支已全部结束";
-  return `✅ ${project} · ${branch} · ${provider} 完成 · ${durationLabel(record.durationMs ?? 0)} · ${status}`;
+  return `✅ ${project} · ${branch} · ${provider} 完成${durationSuffix(record)} · ${status}`;
 }
 
 export function formatMerged(records: NotificationRecord[]): string {
