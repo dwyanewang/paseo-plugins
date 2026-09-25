@@ -7,7 +7,7 @@ import {
   WAKE_GRACE_MS,
 } from "./constants";
 import { describeError, describePermission, describeTurn, type TurnDetail } from "./details";
-import { firstErrorLine, formatBody, formatMerged } from "./format";
+import { firstErrorLine, formatBody, formatMerged, formatSubject } from "./format";
 import { renderHtml } from "./html";
 import type {
   Clock,
@@ -203,6 +203,7 @@ export class NotificationEngine {
     }
     try {
       await this.deps.sender.send({
+        subject: formatSubject(records),
         summary: formatMerged(records),
         body: formatBody(records),
         html: renderHtml(records),
