@@ -1,0 +1,4 @@
+{
+  "id": "mail-notify",
+  "requirements": { "paseo": ">=0.8.0" }
+}

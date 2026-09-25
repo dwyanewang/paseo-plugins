@@ -1,0 +1,27 @@
+{
+  "name": "paseo-plugin-mail-notify",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "nodemailer": "^10.0.10",
+    "marked": "^18.0.14"
+  },
+  "devDependencies": {
+    "@getpaseo/client": "file:../../paseo/packages/client",
+    "@getpaseo/plugin": "file:../../paseo/packages/plugin",
+    "@getpaseo/protocol": "file:../../paseo/packages/protocol",
+    "@tanstack/react-query": "^5.90.11",
+    "@types/node": "^22.0.0",
+    "@types/react": "~19.2.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.6",
+    "zod": "4.4.3"
+  }
+}
