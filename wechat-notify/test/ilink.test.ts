@@ -40,6 +40,17 @@ describe("iLink sender", () => {
     });
   });
 
+  it("接受数字型 message_id（真实响应形态）", async () => {
+    const secrets = new Secrets();
+    secrets.values.set("ilink.token", "test-token");
+    secrets.values.set("ilink.base-url", "https://example.invalid");
+    secrets.values.set("ilink.to-user", "recipient");
+    const sender = createIlinkSender(secrets, {
+      fetch: async () => response({ message_id: 750905999 }),
+    });
+    await expect(sender.send("hello")).resolves.toBe("750905999");
+  });
+
   it("ret=-2 最多退避重试两次", async () => {
     const secrets = new Secrets();
     secrets.values.set("ilink.token", "test-token");

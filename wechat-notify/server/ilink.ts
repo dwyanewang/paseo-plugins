@@ -138,12 +138,20 @@ export function createIlinkSender(secrets: PluginSecretStore, options: IlinkSend
             options.log?.("iLink 返回失败", { code });
             return null;
           }
-          if (typeof payload.message_id !== "string" || !payload.message_id) {
+          // The live API returns message_id as a number (e.g. 7509059992810059656);
+          // the earlier string-only check treated every real success as a failure.
+          const messageId =
+            typeof payload.message_id === "string" && payload.message_id
+              ? payload.message_id
+              : typeof payload.message_id === "number"
+                ? String(payload.message_id)
+                : null;
+          if (!messageId) {
             options.log?.("iLink 返回缺少 message_id");
             return null;
           }
-          options.log?.("微信通知发送成功", { message_id: payload.message_id });
-          return payload.message_id;
+          options.log?.("微信通知发送成功", { message_id: messageId });
+          return messageId;
         } catch (error) {
           options.log?.("iLink 请求异常", { error: error instanceof Error ? error.message : String(error) });
           return null;
