@@ -10,6 +10,7 @@ into `~/.paseo`, so editing here plus a plugin reload is the whole deploy step.
 | `forge` | `forge/`    | Codeup and Gitee change requests over their HTTP APIs. See `forge/README.md`.       |
 | `todo`  | `todolist/` | Host-local work items that launch and track Paseo agents. See `todolist/README.md`. |
 | `wechat-notify` | `wechat-notify/` | Daemon-side lifecycle notifications delivered directly to personal WeChat via Tencent iLink. See `wechat-notify/README.md`. |
+| `mail-notify` | `mail-notify/` | The same lifecycle notifications sent as SMTP mail; with WeChat's QQ Mail reminder they reach WeChat without iLink's push window. See `mail-notify/README.md`. |
 
 ## Host requirement
 
@@ -26,6 +27,7 @@ Both the daemon and the app must run a build of that branch:
 - `forge` needs Forge providers from plugins, `server.secrets`, the settings server handle, and the
   plugin settings screen.
 - `todo` needs `server.paseo`, the settings server handle, and `navigation.openAgentLaunch`.
+- `mail-notify` needs `server.secrets` and the plugin settings screen.
 
 To set it up, clone both repositories side by side and build the host SDK:
 
@@ -56,6 +58,7 @@ touching this repository. After any sync, re-verify each plugin from its own dir
 ```bash
 (cd forge && npm run typecheck && npm test)
 (cd todolist && npm run typecheck && npm test)
+(cd mail-notify && npm run typecheck && npm test)
 ```
 
 Host-side changes (new plugin SDK surface, new host navigation) belong on the Paseo branch and must
