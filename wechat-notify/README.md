@@ -24,3 +24,6 @@ paseo plugin reload wechat-notify
 
 通知遵循 60 秒完成门槛、20 秒权限延迟、5 秒合并窗口，并在检测到 Paseo 或提供方后台子 agent
 时挂起复查。
+
+插件每次启动（安装、`paseo plugin reload`、daemon 重启）都会发一条"🔔 Paseo 微信通知已连接"。
+收不到这条消息，就说明凭据或网络有问题，原因见 `paseo plugin logs wechat-notify`。

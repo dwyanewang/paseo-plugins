@@ -3,6 +3,7 @@ import type { PluginHookAgent, PluginServerContext } from "@getpaseo/plugin/serv
 import type { AgentPermissionRequest } from "@getpaseo/protocol/agent-types";
 import { NotificationEngine } from "./server/engine";
 import { createIlinkSender } from "./server/ilink";
+import { sendStartupNotice } from "./server/startup";
 import type { AgentEntry, NotificationWorkspace, RuntimeInspection } from "./server/types";
 
 const PARENT_LABEL = "paseo.parent-agent-id";
@@ -63,11 +64,13 @@ export default function contribute(server: PluginServerContext) {
     // Never include credentials or recipient identifiers in plugin logs.
     console.log(`[wechat-notify] ${message}`, details ?? "");
   };
+  const sender = createIlinkSender(server.secrets, { log });
   const engine = new NotificationEngine({
-    sender: createIlinkSender(server.secrets, { log }),
+    sender,
     inspect: (agent) => inspect(server.paseo, agent),
     log,
   });
+  void sendStartupNotice(sender, log);
 
   server.on("agent.turn_started", (event) => {
     engine.onTurnStarted(event.agent);
