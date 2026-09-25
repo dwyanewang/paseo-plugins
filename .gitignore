@@ -7,6 +7,9 @@ dist/
 coverage/
 *.tsbuildinfo
 
+# Screenshots, snapshots and console logs from the Playwright MCP server, written to the repo root
+.playwright-mcp/
+
 # Editor and OS noise
 .DS_Store
 *.swp
