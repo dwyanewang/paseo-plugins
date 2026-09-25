@@ -3,9 +3,14 @@ import type { PluginHookAgent, PluginServerContext } from "@getpaseo/plugin/serv
 import type { AgentPermissionRequest } from "@getpaseo/protocol/agent-types";
 import { NotificationEngine } from "./server/engine";
 import { createIlinkSender } from "./server/ilink";
+import { sendStartupNotice } from "./server/startup";
 import type { AgentEntry, NotificationWorkspace, RuntimeInspection } from "./server/types";
 
 const PARENT_LABEL = "paseo.parent-agent-id";
+
+interface PresenceReader {
+  presence?: () => Promise<{ userPresent: boolean }>;
+}
 
 async function listAgents(paseo: PaseoApi): Promise<AgentEntry[]> {
   const entries: AgentEntry[] = [];
@@ -63,11 +68,17 @@ export default function contribute(server: PluginServerContext) {
     // Never include credentials or recipient identifiers in plugin logs.
     console.log(`[wechat-notify] ${message}`, details ?? "");
   };
+  const sender = createIlinkSender(server.secrets, { log });
+  // `server.presence()` is newer than some hosts this plugin runs on.
+  const presence = (server as PluginServerContext & PresenceReader).presence?.bind(server);
+  if (!presence) log("宿主不支持在场检测，通知不会因正在使用 Paseo 而跳过");
   const engine = new NotificationEngine({
-    sender: createIlinkSender(server.secrets, { log }),
+    sender,
     inspect: (agent) => inspect(server.paseo, agent),
+    ...(presence ? { isUserPresent: async () => (await presence()).userPresent } : {}),
     log,
   });
+  void sendStartupNotice(sender, log);
 
   server.on("agent.turn_started", (event) => {
     engine.onTurnStarted(event.agent);

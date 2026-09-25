@@ -63,16 +63,33 @@ function agent(id: string, parentAgentId: string | null = null, provider = "clau
   };
 }
 
-function setup(initial: RuntimeInspection = { workspace, agents: [] }) {
+function setup(
+  initial: RuntimeInspection = { workspace, agents: [] },
+  isUserPresent?: () => Promise<boolean>,
+) {
   const clock = new TestClock();
   const sent: string[] = [];
+  const logs: string[] = [];
   let inspection = initial;
   const engine = new NotificationEngine({
     clock,
     sender: { send: async (text) => (sent.push(text), "message-id") },
     inspect: async () => inspection,
+    ...(isUserPresent ? { isUserPresent } : {}),
+    log: (message) => logs.push(message),
   });
-  return { clock, sent, engine, setInspection: (next: RuntimeInspection) => (inspection = next) };
+  return { clock, sent, logs, engine, setInspection: (next: RuntimeInspection) => (inspection = next) };
+}
+
+async function finishLongTurn(clock: TestClock, engine: NotificationEngine) {
+  const current = agent("a");
+  engine.onTurnStarted(current);
+  await clock.advance(60_000);
+  engine.onTurnEnded({ agent: current, turnId: "t", outcome: { kind: "completed" } });
+  await clock.advance(1);
+  await clock.advance(5_000);
+  // The flush awaits presence before sending; let that chain settle.
+  await new Promise((resolve) => setImmediate(resolve));
 }
 
 describe("NotificationEngine", () => {
@@ -193,6 +210,27 @@ describe("NotificationEngine", () => {
     await state.clock.advance(1);
     await state.clock.advance(5_000);
     expect(state.sent[0]).toContain("本分支已全部结束");
+  });
+
+  it("用户正在使用 Paseo 时跳过，离开后照常推送", async () => {
+    let present = true;
+    const { clock, sent, logs, engine } = setup(undefined, async () => present);
+    await finishLongTurn(clock, engine);
+    expect(sent).toEqual([]);
+    expect(logs).toContain("用户正在使用 Paseo，跳过微信通知");
+
+    present = false;
+    await finishLongTurn(clock, engine);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("读取在场状态失败时照常推送", async () => {
+    const { clock, sent, logs, engine } = setup(undefined, async () => {
+      throw new Error("presence unavailable");
+    });
+    await finishLongTurn(clock, engine);
+    expect(sent).toHaveLength(1);
+    expect(logs).toContain("读取在场状态失败，照常发送");
   });
 
   it("消息格式支持小时耗时与分支已结束", () => {
