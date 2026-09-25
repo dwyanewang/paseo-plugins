@@ -9,6 +9,7 @@ into `~/.paseo`, so editing here plus a plugin reload is the whole deploy step.
 | ------- | ----------- | ----------------------------------------------------------------------------------- |
 | `forge` | `forge/`    | Codeup and Gitee change requests over their HTTP APIs. See `forge/README.md`.       |
 | `todo`  | `todolist/` | Host-local work items that launch and track Paseo agents. See `todolist/README.md`. |
+| `wechat-notify` | `wechat-notify/` | Daemon-side lifecycle notifications delivered directly to personal WeChat via Tencent iLink. See `wechat-notify/README.md`. |
 
 ## Host requirement
 
