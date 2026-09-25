@@ -92,7 +92,8 @@ export class NotificationEngine {
       return;
     }
     if (state.completionNotified || durationMs < COMPLETE_THRESHOLD_MS) return;
-    this.considerCompletion(agent, state, durationMs).catch((error: unknown) => {
+    const generation = state.generation;
+    this.considerCompletion(agent, state, durationMs, generation).catch((error: unknown) => {
       this.deps.log?.("完成状态检查失败", {
         agentId: agent.id,
         error: error instanceof Error ? error.message : String(error),
@@ -138,6 +139,11 @@ export class NotificationEngine {
     for (const [requestId, pending] of this.permissions) {
       if (pending.agentId === agentId) this.clearPermission(requestId);
     }
+    this.queued = this.queued.filter((record) => record.agentId !== agentId);
+    if (this.queued.length === 0 && this.mergeTimer !== undefined) {
+      this.clock.clearTimeout(this.mergeTimer);
+      this.mergeTimer = undefined;
+    }
   }
 
   async flush(): Promise<void> {
@@ -167,48 +173,65 @@ export class NotificationEngine {
     this.queued = [];
   }
 
-  private async considerCompletion(agent: PluginHookAgent, state: AgentState, durationMs: number) {
+  private async considerCompletion(
+    agent: PluginHookAgent,
+    state: AgentState,
+    durationMs: number,
+    generation: number,
+  ) {
+    if (!this.isCurrent(agent.id, state, generation)) return;
     const inspection = await this.inspect(agent);
-    if (state.completionNotified) return;
+    if (!this.isCurrent(agent.id, state, generation)) return;
     if (hasBackgroundWork(agent, inspection)) {
-      this.scheduleRecheck(agent, state, durationMs);
+      this.scheduleRecheck(agent, state, durationMs, generation);
       return;
     }
     this.enqueueCompletion(agent, state, inspection, durationMs);
   }
 
-  private scheduleRecheck(agent: PluginHookAgent, state: AgentState, durationMs: number): void {
+  private scheduleRecheck(agent: PluginHookAgent, state: AgentState, durationMs: number, generation: number): void {
+    if (!this.isCurrent(agent.id, state, generation)) return;
     if (state.recheck !== undefined) return;
     const check = () => {
+      const interval = state.recheck;
+      if (interval !== undefined) {
+        this.clock.clearInterval(interval);
+        state.recheck = undefined;
+      }
+      if (!this.isCurrent(agent.id, state, generation)) return;
       this.inspect(agent)
         .then((inspection) => {
-          state.recheck = undefined;
+          if (!this.isCurrent(agent.id, state, generation)) return;
           if (hasBackgroundWork(agent, inspection)) {
-            this.scheduleRecheck(agent, state, durationMs);
+            this.scheduleRecheck(agent, state, durationMs, generation);
             return;
           }
-          const generation = state.generation;
           state.grace = this.clock.setTimeout(() => {
             state.grace = undefined;
-            if (state.generation !== generation || state.completionNotified) return;
+            if (!this.isCurrent(agent.id, state, generation)) return;
             this.inspect(agent)
               .then((latest) => {
+                if (!this.isCurrent(agent.id, state, generation)) return;
                 if (!hasBackgroundWork(agent, latest)) {
                   this.enqueueCompletion(agent, state, latest, this.clock.now() - state.startedAt);
                 } else {
-                  this.scheduleRecheck(agent, state, durationMs);
+                  this.scheduleRecheck(agent, state, durationMs, generation);
                 }
               })
               .catch((error: unknown) => this.deps.log?.("后台工作复查失败", { error: String(error) }));
           }, WAKE_GRACE_MS);
         })
         .catch((error: unknown) => {
-          state.recheck = undefined;
+          if (!this.isCurrent(agent.id, state, generation)) return;
           this.deps.log?.("后台工作复查失败", { error: String(error) });
-          this.scheduleRecheck(agent, state, durationMs);
+          this.scheduleRecheck(agent, state, durationMs, generation);
         });
     };
     state.recheck = this.clock.setInterval(check, BACKGROUND_RECHECK_MS);
+  }
+
+  private isCurrent(agentId: string, state: AgentState, generation: number): boolean {
+    return this.agents.get(agentId) === state && state.generation === generation && !state.completionNotified;
   }
 
   private enqueueCompletion(

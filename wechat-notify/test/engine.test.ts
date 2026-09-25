@@ -21,6 +21,9 @@ class TestClock implements Clock {
     return id;
   };
   clearInterval = (handle: unknown) => this.tasks.delete(handle as number);
+  pendingCount() {
+    return this.tasks.size;
+  }
   async advance(delay: number) {
     const target = this.time + delay;
     while (true) {
@@ -132,6 +135,16 @@ describe("NotificationEngine", () => {
     expect(second.sent[0]).toBe("⏸ 演示项目 · feature/demo · 等待批准：Bash");
   });
 
+  it("取消会移除已经排队但尚未发送的通知", async () => {
+    const { clock, sent, engine } = setup();
+    const current = agent("a");
+    engine.onPermissionRequested({ agent: current, request: { id: "p1", name: "Bash", provider: "claude", kind: "tool" } });
+    await clock.advance(20_000);
+    engine.onTurnEnded({ agent: current, turnId: "t", outcome: { kind: "canceled", reason: "user" } });
+    await clock.advance(5_000);
+    expect(sent).toEqual([]);
+  });
+
   it("5 秒合并窗口内同工作区完成合并为 N 个完成", async () => {
     const { clock, sent, engine } = setup();
     const first = agent("a");
@@ -162,6 +175,8 @@ describe("NotificationEngine", () => {
     await state.clock.advance(1);
     await state.clock.advance(5_000);
     expect(state.sent[0]).toContain("Claude 完成");
+    state.engine.dispose();
+    expect(state.clock.pendingCount()).toBe(0);
   });
 
   it("工作区仍为 running 且没有任何 Paseo agent running 时视为后台工作", async () => {
@@ -184,5 +199,23 @@ describe("NotificationEngine", () => {
     expect(formatMerged([{ kind: "completed", agentId: "a", workspaceId: "ws-1", workspace, provider: "opencode", durationMs: 3_720_000, runningRootCount: 0 }])).toBe(
       "✅ 演示项目 · feature/demo · OpenCode 完成 · 1 小时 2 分钟 · 本分支已全部结束",
     );
+  });
+
+  it("非 git 工作区使用工作区名称作为分支标签", () => {
+    const nonGit = { ...workspace, projectKind: "non_git", name: "本地目录", branch: null };
+    expect(formatMerged([
+      { kind: "completed", agentId: "a", workspaceId: "ws-1", workspace: nonGit, provider: "claude", durationMs: 60_000, runningRootCount: 0 },
+    ])).toBe("✅ 演示项目 · 本地目录 · Claude 完成 · 1 分钟 · 本分支已全部结束");
+  });
+
+  it("不同工作区的完成通知不合并", () => {
+    const other = { ...workspace, id: "ws-2", projectDisplayName: "另一个项目", name: "feature/other", branch: "feature/other" };
+    expect(formatMerged([
+      { kind: "completed", agentId: "a", workspaceId: "ws-1", workspace, provider: "claude", durationMs: 60_000, runningRootCount: 0 },
+      { kind: "completed", agentId: "b", workspaceId: "ws-2", workspace: other, provider: "codex", durationMs: 60_000, runningRootCount: 0 },
+    ])).toBe([
+      "✅ 演示项目 · feature/demo · Claude 完成 · 1 分钟 · 本分支已全部结束",
+      "✅ 另一个项目 · feature/other · Codex 完成 · 1 分钟 · 本分支已全部结束",
+    ].join("\n"));
   });
 });
