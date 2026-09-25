@@ -30,3 +30,6 @@ paseo plugin reload wechat-notify
 
 插件每次启动（安装、`paseo plugin reload`、daemon 重启）都会发一条"🔔 Paseo 微信通知已连接"。
 收不到这条消息，就说明凭据或网络有问题，原因见 `paseo plugin logs wechat-notify`。
+
+iLink 只允许 bot 在用户最近发过消息后的一段时间内主动推送。窗口关闭后接口返回
+`ret=-2 errmsg="prepare failed"`，日志会提示"推送窗口已关闭"；在微信里给 bot 随便发一句话就能恢复。

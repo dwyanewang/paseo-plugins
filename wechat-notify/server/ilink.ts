@@ -128,14 +128,26 @@ export function createIlinkSender(secrets: PluginSecretStore, options: IlinkSend
             options.log?.("iLink HTTP 请求失败", { status: response.status });
             return null;
           }
-          const payload = (await response.json()) as { message_id?: unknown; ret?: unknown; errcode?: unknown };
+          const payload = (await response.json()) as {
+            message_id?: unknown;
+            ret?: unknown;
+            errcode?: unknown;
+            errmsg?: unknown;
+          };
           const code = typeof payload.ret === "number" ? payload.ret : payload.errcode;
           if (typeof code === "number" && code !== 0) {
+            const errmsg = safeString(payload.errmsg);
+            // iLink only lets a bot push for a while after the user's last message; past that it
+            // answers -2 "prepare failed" and retrying cannot help until the user writes again.
+            if (code === -2 && errmsg === "prepare failed") {
+              options.log?.("iLink 推送窗口已关闭，在微信里给 bot 发一条消息即可恢复", { code, errmsg });
+              return null;
+            }
             if (code === -2 && attempt < 2) {
               await sleep(250 * 2 ** attempt);
               continue;
             }
-            options.log?.("iLink 返回失败", { code });
+            options.log?.("iLink 返回失败", { code, errmsg });
             return null;
           }
           // The live API returns message_id as a number (e.g. 7509059992810059656);

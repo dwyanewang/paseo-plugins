@@ -69,4 +69,24 @@ describe("iLink sender", () => {
     expect(calls).toBe(3);
     expect(delays).toEqual([250, 500]);
   });
+
+  it("ret=-2 prepare failed 不重试，并提示在微信里发消息", async () => {
+    const secrets = new Secrets();
+    secrets.values.set("ilink.token", "test-token");
+    secrets.values.set("ilink.base-url", "https://example.invalid");
+    secrets.values.set("ilink.to-user", "recipient");
+    let calls = 0;
+    const logs: string[] = [];
+    const sender = createIlinkSender(secrets, {
+      fetch: async () => {
+        calls += 1;
+        return response({ ret: -2, errmsg: "prepare failed" });
+      },
+      sleep: async () => {},
+      log: (message) => { logs.push(message); },
+    });
+    await expect(sender.send("hello")).resolves.toBeNull();
+    expect(calls).toBe(1);
+    expect(logs).toContain("iLink 推送窗口已关闭，在微信里给 bot 发一条消息即可恢复");
+  });
 });
