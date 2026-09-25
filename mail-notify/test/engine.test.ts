@@ -133,14 +133,55 @@ describe("NotificationEngine", () => {
     expect(bodies[0]).toContain("【Agent 回复】\n已修复");
   });
 
-  it("耗时不足 60 秒的完成不推送", async () => {
+  it("不到一分钟的完成也推送，耗时按秒显示", async () => {
     const { clock, sent, engine } = setup();
     const current = agent("a");
     engine.onTurnStarted(current);
-    await clock.advance(59_999);
+    await clock.advance(35_000);
     engine.onTurnEnded({ agent: current, turnId: "t", outcome: { kind: "completed" } });
+    await clock.advance(1);
+    await clock.advance(5_000);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(sent).toEqual(["✅ 演示项目 · feature/demo · Claude 完成 · 35 秒 · 本分支已全部结束"]);
+  });
+
+  it("插件加载前就开始的一轮不写耗时", async () => {
+    const { clock, sent, engine } = setup();
+    engine.onTurnEnded({ agent: agent("a"), turnId: "t", outcome: { kind: "completed" } });
+    await clock.advance(1);
+    await clock.advance(5_000);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(sent).toEqual(["✅ 演示项目 · feature/demo · Claude 完成 · 本分支已全部结束"]);
+  });
+
+  it("新的一轮重新计时，被后台结果唤醒的一轮继续累计", async () => {
+    const { clock, sent, engine, setInspection } = setup();
+    const current = agent("a");
+    engine.onTurnStarted(current);
+    await clock.advance(120_000);
+    engine.onTurnEnded({ agent: current, turnId: "1", outcome: { kind: "completed" } });
+    await clock.advance(1);
+    await clock.advance(5_000);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(sent[0]).toContain("完成 · 2 分钟");
+
+    // A fresh prompt: timed from its own start, not from the first turn.
+    engine.onTurnStarted(current);
     await clock.advance(10_000);
-    expect(sent).toEqual([]);
+    setInspection({ workspace: { ...workspace, status: "running" }, agents: [] });
+    engine.onTurnEnded({ agent: current, turnId: "2", outcome: { kind: "completed" } });
+    await clock.advance(1);
+    expect(sent).toHaveLength(1);
+
+    // Background work woke the agent: the task keeps its original start.
+    await clock.advance(50_000);
+    engine.onTurnStarted(current);
+    setInspection({ workspace, agents: [] });
+    engine.onTurnEnded({ agent: current, turnId: "3", outcome: { kind: "completed" } });
+    await clock.advance(1);
+    await clock.advance(5_000);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(sent[1]).toContain("完成 · 1 分钟");
   });
 
   it("失败通知带错误第一行且截断到 60 字", async () => {
@@ -217,6 +258,37 @@ describe("NotificationEngine", () => {
     await state.clock.advance(5_000);
     expect(state.sent[0]).toContain("Claude 完成");
     state.engine.dispose();
+    expect(state.clock.pendingCount()).toBe(0);
+  });
+
+  it("收到实时更新后立刻复查，不等轮询间隔", async () => {
+    const parent = agent("parent");
+    const child = { id: "child", workspaceId: "ws-1", status: "running", labels: { "paseo.parent-agent-id": "parent" } };
+    const state = setup({ workspace, agents: [child] });
+    state.engine.setRecheckInterval(300_000);
+    state.engine.onTurnStarted(parent);
+    state.engine.onTurnEnded({ agent: parent, turnId: "t", outcome: { kind: "completed" } });
+    await state.clock.advance(1);
+    state.engine.nudge();
+    await state.clock.advance(1_000);
+    expect(state.sent).toEqual([]);
+
+    state.setInspection({ workspace, agents: [{ ...child, status: "idle" }] });
+    state.engine.nudge();
+    state.engine.nudge();
+    await state.clock.advance(1_000);
+    await state.clock.advance(30_000);
+    await state.clock.advance(1);
+    await state.clock.advance(5_000);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(state.sent[0]).toContain("Claude 完成");
+    state.engine.dispose();
+    expect(state.clock.pendingCount()).toBe(0);
+  });
+
+  it("没有在等后台工作时，实时更新不做任何事", () => {
+    const state = setup();
+    state.engine.nudge();
     expect(state.clock.pendingCount()).toBe(0);
   });
 

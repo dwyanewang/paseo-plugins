@@ -98,7 +98,7 @@ function headline(record: NotificationRecord): { icon: string; status: string } 
 function meta(record: NotificationRecord): string[] {
   const { project, branch } = workspaceLabel(record.workspace);
   const parts = [project, branch];
-  if (record.kind !== "permission") parts.push(durationLabel(record.durationMs ?? 0));
+  if (record.kind !== "permission" && record.durationMs !== undefined) parts.push(durationLabel(record.durationMs));
   if (record.kind === "completed") {
     const running = record.runningRootCount ?? 0;
     parts.push(running > 0 ? `本分支还有 ${running} 个在跑` : "本分支已全部结束");

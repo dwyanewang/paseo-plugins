@@ -4,6 +4,8 @@ import type { AgentPermissionRequest } from "@getpaseo/protocol/agent-types";
 import { hasPassword, readConfig, readCredentials, writeConfig } from "./server/credentials";
 import { NotificationEngine } from "./server/engine";
 import { createMailSender } from "./server/mailer";
+import { LIVE_RECHECK_MS } from "./server/constants";
+import { isWatching, type PresenceLike } from "./server/presence";
 import { sendStartupNotice } from "./server/startup";
 import type { AgentEntry, NotificationWorkspace, RuntimeInspection } from "./server/types";
 import { readSmtpConfig, saveSmtpConfig, sendTestMail } from "./shared/smtp";
@@ -11,7 +13,7 @@ import { readSmtpConfig, saveSmtpConfig, sendTestMail } from "./shared/smtp";
 const PARENT_LABEL = "paseo.parent-agent-id";
 
 interface PresenceReader {
-  presence?: () => Promise<{ userPresent: boolean }>;
+  presence?: () => Promise<PresenceLike>;
 }
 
 async function listAgents(paseo: PaseoApi): Promise<AgentEntry[]> {
@@ -61,6 +63,29 @@ function toNotificationWorkspace(workspace: PaseoWorkspace): NotificationWorkspa
   };
 }
 
+/**
+ * Streams agent and workspace changes into `onChange` so background waits end as soon as the work
+ * does. Each subscription re-snapshots after a reconnect, which also triggers `onChange`.
+ */
+async function watchRuntime(paseo: PaseoApi, onChange: () => void): Promise<() => Promise<void>> {
+  const observer = { snapshot: onChange, update: onChange };
+  const agents = await paseo.agents.list({ scope: "active", subscribe: {} });
+  const stopAgents = agents.subscription.subscribe(observer);
+  try {
+    const workspaces = await paseo.workspaces.list({ subscribe: {} });
+    const stopWorkspaces = workspaces.subscription.subscribe(observer);
+    return async () => {
+      stopAgents();
+      stopWorkspaces();
+      await Promise.all([agents.subscription.release(), workspaces.subscription.release()]);
+    };
+  } catch (error) {
+    stopAgents();
+    await agents.subscription.release();
+    throw error;
+  }
+}
+
 async function inspect(paseo: PaseoApi, agent: PluginHookAgent): Promise<RuntimeInspection> {
   const [workspace, agents] = await Promise.all([findWorkspace(paseo, agent.workspaceId), listAgents(paseo)]);
   return { workspace, agents };
@@ -78,9 +103,22 @@ export default function contribute(server: PluginServerContext) {
   const engine = new NotificationEngine({
     sender,
     inspect: (agent) => inspect(server.paseo, agent),
-    ...(presence ? { isUserPresent: async () => (await presence()).userPresent } : {}),
+    ...(presence ? { isUserPresent: async () => isWatching(await presence(), Date.now()) } : {}),
     log,
   });
+  let stopWatching: (() => Promise<void>) | null = null;
+  let disposed = false;
+  void watchRuntime(server.paseo, () => engine.nudge())
+    .then(async (stop) => {
+      if (disposed) return stop();
+      stopWatching = stop;
+      engine.setRecheckInterval(LIVE_RECHECK_MS);
+    })
+    .catch((error: unknown) =>
+      log("订阅 agent 和工作区更新失败，后台工作改为每分钟复查", {
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
   void readCredentials(server.secrets)
     .then((credentials) => {
       if (credentials) return sendStartupNotice(sender, log);
@@ -116,8 +154,13 @@ export default function contribute(server: PluginServerContext) {
   });
 
   return async () => {
+    disposed = true;
+    await (stopWatching as (() => Promise<void>) | null)?.();
+    // flush() takes the queue before its first await, so a reload still sends what the merge
+    // window was holding; dispose() then clears the timers.
+    const pending = engine.flush();
     engine.dispose();
-    await engine.flush();
+    await pending;
   };
 }
 
