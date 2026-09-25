@@ -154,6 +154,11 @@ export class NotificationEngine {
     const records = this.queued;
     this.queued = [];
     if (records.length === 0) return;
+    // Checked at send time, as Paseo's own push does: the user may have come back since the event.
+    if (await this.userPresent()) {
+      this.deps.log?.("用户正在使用 Paseo，跳过微信通知", { count: records.length });
+      return;
+    }
     const message = formatMerged(records);
     try {
       await this.deps.sender.send(message);
@@ -273,6 +278,18 @@ export class NotificationEngine {
         this.mergeTimer = undefined;
         void this.flush();
       }, MERGE_WINDOW_MS);
+    }
+  }
+
+  private async userPresent(): Promise<boolean> {
+    if (!this.deps.isUserPresent) return false;
+    try {
+      return await this.deps.isUserPresent();
+    } catch (error) {
+      this.deps.log?.("读取在场状态失败，照常发送", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
     }
   }
 

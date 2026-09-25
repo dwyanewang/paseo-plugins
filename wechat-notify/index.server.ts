@@ -8,6 +8,10 @@ import type { AgentEntry, NotificationWorkspace, RuntimeInspection } from "./ser
 
 const PARENT_LABEL = "paseo.parent-agent-id";
 
+interface PresenceReader {
+  presence?: () => Promise<{ userPresent: boolean }>;
+}
+
 async function listAgents(paseo: PaseoApi): Promise<AgentEntry[]> {
   const entries: AgentEntry[] = [];
   let cursor: string | undefined;
@@ -65,9 +69,13 @@ export default function contribute(server: PluginServerContext) {
     console.log(`[wechat-notify] ${message}`, details ?? "");
   };
   const sender = createIlinkSender(server.secrets, { log });
+  // `server.presence()` is newer than some hosts this plugin runs on.
+  const presence = (server as PluginServerContext & PresenceReader).presence?.bind(server);
+  if (!presence) log("宿主不支持在场检测，通知不会因正在使用 Paseo 而跳过");
   const engine = new NotificationEngine({
     sender,
     inspect: (agent) => inspect(server.paseo, agent),
+    ...(presence ? { isUserPresent: async () => (await presence()).userPresent } : {}),
     log,
   });
   void sendStartupNotice(sender, log);

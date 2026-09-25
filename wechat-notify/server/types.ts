@@ -38,6 +38,8 @@ export interface NotificationSender {
 export interface NotificationEngineDeps {
   sender: NotificationSender;
   inspect(agent: PluginHookAgent): Promise<RuntimeInspection>;
+  /** Absent on hosts without `server.presence()`; every notification is then sent. */
+  isUserPresent?: () => Promise<boolean>;
   clock?: Clock;
   log?: (message: string, details?: Record<string, unknown>) => void;
 }
