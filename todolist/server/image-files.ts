@@ -2,7 +2,7 @@ import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { PluginServerContext, PluginSettings } from "@getpaseo/plugin/server";
-import { stageImages, type StagedImageFile } from "../shared/contracts";
+import { stageImages, type HostFile } from "../shared/contracts";
 import type { TodoImagesSchema } from "../shared/images";
 import type { TodoLogger } from "./log";
 
@@ -38,12 +38,12 @@ export async function stageImageFiles(
   images: TodoImagesDocument,
   ids: readonly string[],
   directory: string = defaultImageDirectory(),
-): Promise<{ files: StagedImageFile[]; missing: string[] }> {
+): Promise<{ files: HostFile[]; missing: string[] }> {
   const state = await images.read();
   if (state.status !== "ready") throw new Error(`The image store could not be read (${state.status}).`);
   const stored = state.values.images;
   await mkdir(directory, { recursive: true });
-  const files: StagedImageFile[] = [];
+  const files: HostFile[] = [];
   const missing: string[] = [];
   for (const id of ids) {
     const image = stored[id];

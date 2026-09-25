@@ -9,7 +9,9 @@ import type { AgentLink, Attempt, WorkItemPriority, WorkItemStatus } from "../sh
 import { Badge, toneColor } from "./components";
 import type { WorkItemView } from "./data";
 import { MenuButton, PillSelect, PillStrip } from "./floating-menu";
-import { ImageStrip, useDraftImages } from "./image-attachments";
+import type { WorkItemFileInput } from "../shared/contracts";
+import { AttachmentStrip, useDraftAttachments } from "./attachments";
+import { draftToFileRef, refToDraftFile } from "./files";
 import { useTodoImageStore, type DraftImage } from "./images";
 import { getKnownClientInstanceId } from "./launch";
 import { MetaLine, Overlay, OverlayBox, useOverlay } from "./overlay";
@@ -19,9 +21,9 @@ import { parseQuickAdd } from "./quick-add";
 import type { TodoStyles } from "./styles";
 import { AGGREGATE_PRESENTATION, DISPLAY_STATE_COLOR, DISPLAY_STATE_PRESENTATION, TEXT } from "./text";
 import {
-  AddImagesButton,
+  AttachButton,
   CardTextArea,
-  DraftImageRow,
+  DraftAttachmentRow,
   DropHint,
   PLACEHOLDER,
   PriorityPill,
@@ -39,6 +41,8 @@ export interface CardEdit {
   priority: WorkItemPriority;
   /** The full desired image set with in-memory bytes, or null to leave stored images unchanged. */
   images: DraftImage[] | null;
+  /** The full desired file set. */
+  files: WorkItemFileInput[];
 }
 
 export interface CardActions {
@@ -159,6 +163,7 @@ function ViewBody(props: PanelProps & { view: WorkItemView; onEdit: () => void }
   const { item, aggregate } = view;
   const imageStore = useTodoImageStore();
   const images = useMemo(() => imageStore.resolve(item.images), [imageStore, item.images]);
+  const files = useMemo(() => item.files.map(refToDraftFile), [item.files]);
   const [allAttempts, setAllAttempts] = useState(false);
   const [hovered, setHovered] = useState(false);
   const presentation = AGGREGATE_PRESENTATION[aggregate.state];
@@ -240,7 +245,7 @@ function ViewBody(props: PanelProps & { view: WorkItemView; onEdit: () => void }
     >
       <Pressable
         accessibilityRole={archived ? undefined : "button"}
-        accessibilityHint={archived ? undefined : "Edits the text and images"}
+        accessibilityHint={archived ? undefined : "Edits the text and attachments"}
         disabled={archived}
         onPress={props.onEdit}
         onHoverIn={() => setHovered(true)}
@@ -252,11 +257,6 @@ function ViewBody(props: PanelProps & { view: WorkItemView; onEdit: () => void }
       >
         <Text style={{ color: theme.colors.foreground, fontSize: 17, fontWeight: "600", lineHeight: 24, paddingRight: hovered ? 80 : 0 }}>{item.title}</Text>
         {item.details ? <Text style={{ color: theme.colors.foreground, opacity: 0.88, fontSize: 14, lineHeight: 22, marginTop: 4 }}>{item.details}</Text> : null}
-        {images.length > 0 ? (
-          <View style={{ marginTop: 8 }}>
-            <ImageStrip styles={styles} theme={theme} images={images} size={60} />
-          </View>
-        ) : null}
         {hovered && !archived ? (
           <View style={{ position: "absolute", top: 4, right: 6, flexDirection: "row", alignItems: "center", gap: 4 }}>
             <Icon name="Pencil" size={11} color={theme.colors.foregroundMuted} />
@@ -264,6 +264,12 @@ function ViewBody(props: PanelProps & { view: WorkItemView; onEdit: () => void }
           </View>
         ) : null}
       </Pressable>
+      {/* Outside the text's press area: a thumbnail opens its preview instead of the editor. */}
+      {images.length > 0 || files.length > 0 ? (
+        <View style={{ marginTop: 8 }}>
+          <AttachmentStrip styles={styles} theme={theme} images={images} files={files} size={60} />
+        </View>
+      ) : null}
 
       {/* Only cards from before the one-box editor still carry a prompt of their own. */}
       {item.defaultPrompt ? (
@@ -462,18 +468,19 @@ function EditBody(props: PanelProps & { view: WorkItemView; onDone: () => void }
   const [hydrated, setHydrated] = useState(false);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<TextInput | null>(null);
-  const drafts = useDraftImages(hydrated);
-  const resetImages = drafts.reset;
+  const [initialFiles] = useState(() => item.files.map(refToDraftFile));
+  const drafts = useDraftAttachments(hydrated, { files: initialFiles });
+  const resetDrafts = drafts.reset;
   useEffect(() => {
     if (hydrated || !imageStore.ready) return;
-    resetImages(imageStore.resolve(item.images));
+    resetDrafts({ images: imageStore.resolve(item.images) });
     setHydrated(true);
-  }, [hydrated, imageStore, item.images, resetImages]);
+  }, [hydrated, imageStore, item.images, resetDrafts]);
 
   const draft = parseQuickAdd(text);
   const effectivePriority = draft.priorityToken ? draft.priority : priority;
   const invalid = validateWorkItemFields({ title: draft.title, details: draft.details, defaultPrompt: item.defaultPrompt });
-  const canSave = !invalid && !busy;
+  const canSave = !invalid && !busy && !drafts.uploading;
   const refocus = () => {
     if (!phone) inputRef.current?.focus();
   };
@@ -488,6 +495,7 @@ function EditBody(props: PanelProps & { view: WorkItemView; onDone: () => void }
         defaultPrompt: item.defaultPrompt,
         priority: effectivePriority,
         images: hydrated ? drafts.images : null,
+        files: drafts.files.map(draftToFileRef),
       });
       if (ok) props.onDone();
     } finally {
@@ -515,11 +523,11 @@ function EditBody(props: PanelProps & { view: WorkItemView; onDone: () => void }
         autoFocus
         onSubmitKey={() => void save()}
       />
-      <DraftImageRow styles={styles} theme={theme} drafts={drafts} loading={!hydrated} />
+      <DraftAttachmentRow styles={styles} theme={theme} drafts={drafts} loading={!hydrated} />
       {problem ? <Text style={[styles.warning, { marginTop: 8 }]}>{problem}</Text> : null}
       {item.defaultPrompt ? <InlineNote theme={theme} kind="info">{TEXT.customPromptNotice}</InlineNote> : null}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10 }}>
-        <AddImagesButton theme={theme} drafts={drafts} disabled={!hydrated} onPicked={refocus} />
+        <AttachButton theme={theme} drafts={drafts} disabled={!hydrated} onPicked={refocus} />
         <PillStrip theme={theme}>
           <StatusPill theme={theme} status={item.status} onSelect={(status) => actions.move(view, status)} onClosed={refocus} />
           <PriorityPill theme={theme} priority={effectivePriority} token={draft.priorityToken} onSelect={setPriority} onClosed={refocus} />

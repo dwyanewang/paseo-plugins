@@ -22,6 +22,17 @@ export const IMAGE_MAX_COUNT = 4;
 export const IMAGE_MAX_BYTES = 384 * 1024;
 export const IMAGE_ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
 
+/**
+ * File attachments, such as documents. Their bytes go to the daemon host's disk, never into a
+ * document, so only the reference counts against the capacity budget.
+ */
+export const FILE_MAX_COUNT = 10;
+/** The host composer's cap for one uploaded file. */
+export const FILE_MAX_BYTES = 50 * 1024 * 1024;
+/** Decoded bytes per upload call: small enough for one message over a relayed, encrypted socket. */
+export const FILE_CHUNK_BYTES = 256 * 1024;
+export const FILE_NAME_MAX_CODE_POINTS = 200;
+
 export const CAPACITY = {
   /** Ordinary create/edit/acquire growth stops here. */
   softLimitBytes: 512 * 1024,
@@ -124,7 +135,8 @@ export type FieldError =
   | { field: "defaultPrompt"; reason: "too_long" }
   | { field: "seedPrompt"; reason: "empty" | "too_long" }
   | { field: "initiatorLabel"; reason: "too_long" }
-  | { field: "images"; reason: "too_many" | "too_large" | "unsupported_type" | "empty_data" };
+  | { field: "images"; reason: "too_many" | "too_large" | "unsupported_type" | "empty_data" }
+  | { field: "files"; reason: "too_many" | "too_large" | "invalid_name" };
 
 export function validateWorkItemFields(input: {
   title?: string;
@@ -165,6 +177,20 @@ export function validateWorkItemImages(
     if (image.byteLength > IMAGE_MAX_BYTES) {
       return { field: "images", reason: "too_large" };
     }
+  }
+  return null;
+}
+
+export function validateWorkItemFiles(
+  files: readonly { name: string; byteLength: number }[] | undefined,
+): FieldError | null {
+  if (!files || files.length === 0) return null;
+  if (files.length > FILE_MAX_COUNT) return { field: "files", reason: "too_many" };
+  for (const file of files) {
+    if (file.name.trim().length === 0 || codePointLength(file.name) > FILE_NAME_MAX_CODE_POINTS) {
+      return { field: "files", reason: "invalid_name" };
+    }
+    if (file.byteLength > FILE_MAX_BYTES) return { field: "files", reason: "too_large" };
   }
   return null;
 }

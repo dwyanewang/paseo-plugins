@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { IMAGE_MAX_BYTES, IMAGE_MAX_COUNT, base64ByteLength, validateWorkItemImages } from "../shared/limits";
+import { FILE_MAX_BYTES, FILE_MAX_COUNT, IMAGE_MAX_BYTES, IMAGE_MAX_COUNT, base64ByteLength, validateWorkItemFiles, validateWorkItemImages } from "../shared/limits";
 
 describe("base64ByteLength", () => {
   it("returns the decoded byte length, accounting for padding", () => {
@@ -46,5 +46,21 @@ describe("validateWorkItemImages", () => {
       field: "images",
       reason: "empty_data",
     });
+  });
+});
+
+describe("validateWorkItemFiles", () => {
+  const ok = { name: "spec.pdf", byteLength: 1024 };
+
+  it("accepts no files, empty files, and files up to the cap", () => {
+    expect(validateWorkItemFiles(undefined)).toBeNull();
+    expect(validateWorkItemFiles([{ name: "empty.txt", byteLength: 0 }, { name: "big.zip", byteLength: FILE_MAX_BYTES }])).toBeNull();
+  });
+
+  it("rejects too many files, an oversized file, and a name it cannot keep", () => {
+    expect(validateWorkItemFiles(Array.from({ length: FILE_MAX_COUNT + 1 }, () => ok))).toEqual({ field: "files", reason: "too_many" });
+    expect(validateWorkItemFiles([{ ...ok, byteLength: FILE_MAX_BYTES + 1 }])).toEqual({ field: "files", reason: "too_large" });
+    expect(validateWorkItemFiles([{ ...ok, name: "  " }])).toEqual({ field: "files", reason: "invalid_name" });
+    expect(validateWorkItemFiles([{ ...ok, name: "x".repeat(201) }])).toEqual({ field: "files", reason: "invalid_name" });
   });
 });

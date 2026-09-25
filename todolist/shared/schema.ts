@@ -47,6 +47,19 @@ export const TodoImageRefSchema = z.object({
 });
 export type TodoImageRef = z.infer<typeof TodoImageRefSchema>;
 
+/**
+ * A reference to a file attached to a work item, such as a document. The bytes are a file on the
+ * daemon host (see `server/card-files.ts`), which a launch hands to the agent by path.
+ */
+export const TodoFileRefSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  /** Empty when neither the platform nor the name told what it is. */
+  mimeType: z.string(),
+  byteLength: z.number().int().nonnegative(),
+});
+export type TodoFileRef = z.infer<typeof TodoFileRefSchema>;
+
 export const WorkItemSchema = z.object({
   id: z.string().min(1),
   creationFingerprint: z.string().min(1),
@@ -62,6 +75,8 @@ export const WorkItemSchema = z.object({
   defaultPrompt: z.string(),
   /** References to images that describe the work; bytes live in the `todo-images` document. */
   images: z.array(TodoImageRefSchema).default([]),
+  /** References to attached files; bytes live on the daemon host's disk. */
+  files: z.array(TodoFileRefSchema).default([]),
   status: WorkItemStatusSchema,
   statusChangedAt: z.string(),
   statusReason: StatusReasonSchema,

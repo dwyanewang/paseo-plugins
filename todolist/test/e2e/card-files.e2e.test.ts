@@ -8,10 +8,11 @@ import { createPaseoApi } from "@getpaseo/client";
 import { DaemonClient } from "@server/server/test-utils/daemon-client.js";
 import { createTestPaseoDaemon } from "@server/server/test-utils/paseo-daemon.js";
 import { createTestAgentClient, createTestAgentClients } from "@server/server/test-utils/fake-agent-client.js";
-import { abandonLaunch, acquireLaunch, createWorkItem, ensureDocument, reportLaunchProgress, stageImages, type HostFile } from "../../shared/contracts";
+import { abandonLaunch, acquireLaunch, createWorkItem, ensureDocument, reportLaunchProgress, resolveFiles, writeFile, type StoredFile } from "../../shared/contracts";
 import { computeCreationFingerprint } from "../../shared/fingerprint";
-import { TODO_IMAGES_SETTINGS_ID, TodoImagesSchema } from "../../shared/images";
+import { FILE_CHUNK_BYTES } from "../../shared/limits";
 import { TODO_SETTINGS_ID, TodoDocumentSchema } from "../../shared/schema";
+import { uploadFile } from "../../client/files";
 import { runWorkItemNow, type RunInput } from "../../client/run";
 
 const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -30,12 +31,12 @@ async function temporary(prefix: string): Promise<string> {
   return directory;
 }
 
-test("card images are staged as files on the daemon host and reach the agent as uploaded files", async () => {
-  const staged = await temporary("todo-plugin-images-");
+test("a file attached to a card uploads in pieces and reaches the agent as an uploaded file", async () => {
+  const staged = await temporary("todo-plugin-files-");
   await cp(pluginRoot, staged, { recursive: true, filter: (source) => !source.split(path.sep).includes("node_modules") });
-  const workspaceDirectory = await temporary("todo-images-workspace-");
+  const workspaceDirectory = await temporary("todo-files-workspace-");
   // The plugin process inherits the daemon's environment; keep its writes inside this test.
-  const home = await temporary("todo-images-home-");
+  const home = await temporary("todo-files-home-");
   process.env.PASEO_HOME = home;
 
   const prompts: unknown[] = [];
@@ -46,7 +47,6 @@ test("card images are staged as files on the daemon host and reach the agent as 
   const rpc = async <Output>(name: string, input: unknown): Promise<Output> =>
     (await client.invokePluginRpc("todo", name, input)) as Output;
   const settings = settingsRpc(TODO_SETTINGS_ID);
-  const images = settingsRpc(TODO_IMAGES_SETTINGS_ID);
   const readDocument = async () => {
     const result = settings.read.output.parse(await rpc(settings.read.name, {}));
     if (result.status !== "ready") throw new Error(`document ${result.status}`);
@@ -61,43 +61,46 @@ test("card images are staged as files on the daemon host and reach the agent as 
     const workspace = await client.createWorkspace({ source: { kind: "directory", path: workspaceDirectory } });
     const projectId = workspace.workspace!.projectId;
 
-    // The client writes the bytes, as the editor does, before the card references them.
-    const bytes = Buffer.from("not really a png");
-    const initial = images.read.output.parse(await rpc(images.read.name, {}));
-    if (initial.status !== "ready") throw new Error("image store unavailable");
-    const values = TodoImagesSchema.parse({
-      images: { img_e2e1: { id: "img_e2e1", data: bytes.toString("base64"), mimeType: "image/png", name: "api.png", byteLength: bytes.length, addedAt: new Date().toISOString() } },
-    });
-    await expect(rpc(images.write.name, { revision: initial.revision, values })).resolves.toMatchObject({ status: "saved" });
+    // Bigger than one piece, so the upload takes several calls through the daemon.
+    const bytes = Buffer.alloc(FILE_CHUNK_BYTES * 2 + 123, 0x61);
+    const progress: number[] = [];
+    await uploadFile(
+      { name: "需求说明.md", mimeType: "text/markdown", size: bytes.length, read: async (offset, length) => bytes.subarray(offset, offset + length).toString("base64") },
+      "file_e2e1",
+      (input) => rpc(writeFile.name, input),
+      (uploaded) => progress.push(uploaded),
+    );
+    expect(progress).toEqual([FILE_CHUNK_BYTES, FILE_CHUNK_BYTES * 2, bytes.length]);
 
-    const stagedResult = await rpc<{ status: string; files: HostFile[]; missing: string[] }>(stageImages.name, { ids: ["img_e2e1", "img_unknown"] });
-    expect(stagedResult).toMatchObject({ status: "ok", missing: ["img_unknown"] });
-    const file = stagedResult.files[0]!;
-    expect(file).toMatchObject({ id: "img_e2e1", fileName: "api.png", mimeType: "image/png", size: bytes.length });
-    expect(file.path).toBe(path.join(home, "plugin-data", "todo", "images", "img_e2e1.png"));
-    expect(await readFile(file.path)).toEqual(bytes);
+    const located = await rpc<{ status: string; files: StoredFile[]; missing: string[] }>(resolveFiles.name, { ids: ["file_e2e1", "file_unknown"] });
+    const target = path.join(home, "plugin-data", "todo", "files", "file_e2e1", "需求说明.md");
+    expect(located).toEqual({ status: "ok", files: [{ id: "file_e2e1", size: bytes.length, path: target }], missing: ["file_unknown"] });
+    expect(await readFile(target)).toEqual(bytes);
 
-    const content = { id: "wi_images_0000000000000001", projectId, title: "Build the page", details: "", defaultPrompt: "" };
+    const content = { id: "wi_files_00000000000000001", projectId, title: "Follow the spec", details: "", defaultPrompt: "" };
+    const ref = { id: "file_e2e1", name: "需求说明.md", mimeType: "text/markdown", byteLength: bytes.length };
     await rpc(createWorkItem.name, {
       expectedIncarnationId: incarnationId,
       ...content,
       projectNameSnapshot: "Workspace",
       creationFingerprint: computeCreationFingerprint(content),
-      images: [{ id: "img_e2e1", mimeType: "image/png", name: "api.png", byteLength: bytes.length }],
+      files: [ref],
     });
     const item = (await readDocument()).workItems[content.id]!;
+    expect(item.files).toEqual([ref]);
+
+    const file = { id: ref.id, fileName: ref.name, mimeType: ref.mimeType, size: bytes.length, path: target };
     const paseo = createPaseoApi(client as never) as unknown as RunInput["paseo"];
     const result = await runWorkItemNow({
       paseo,
       item,
       incarnationId,
-      seedPrompt: "Build the page",
+      seedPrompt: "Follow the spec",
       seedPromptSource: "work-item-default",
       initiatorLabel: "E2E",
       target: { kind: "existing", workspaceId: workspace.workspace!.id },
       config: { providerModel: "pi/test" },
-      images: [{ data: bytes.toString("base64"), mimeType: "image/png" }],
-      files: stagedResult.files,
+      files: [file],
       rpcs: {
         acquire: (input) => rpc(acquireLaunch.name, input),
         progress: (input) => rpc(reportLaunchProgress.name, input),
@@ -106,12 +109,9 @@ test("card images are staged as files on the daemon host and reach the agent as 
       onChange: () => undefined,
     });
     expect(result).toMatchObject({ status: "started" });
-    if (result.status !== "started") return;
-    // The provider gets the text, the inline image, and the file it can open again later.
     await expect.poll(() => prompts.length, { timeout: 15_000 }).toBe(1);
     expect(prompts[0]).toEqual([
-      { type: "text", text: "Build the page" },
-      { type: "image", data: bytes.toString("base64"), mimeType: "image/png" },
+      { type: "text", text: "Follow the spec" },
       { type: "uploaded_file", ...file },
     ]);
   } finally {

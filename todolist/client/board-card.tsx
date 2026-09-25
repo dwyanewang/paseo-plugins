@@ -78,6 +78,12 @@ export function BoardCard(props: {
               <Text style={styles.metaText}>{item.images.length}</Text>
             </View>
           ) : null}
+          {item.files.length > 0 ? (
+            <View style={[styles.row, { gap: 3, flexShrink: 0 }]} accessibilityLabel={`${item.files.length} file${item.files.length > 1 ? "s" : ""}`}>
+              <Icon name="Paperclip" size={11} color={theme.colors.foregroundMuted} />
+              <Text style={styles.metaText}>{item.files.length}</Text>
+            </View>
+          ) : null}
           {/* Priority shares the meta line rather than taking a row of its own. */}
           {item.priority !== "none" ? (
             <View style={[styles.row, { gap: 3, marginLeft: "auto", flexShrink: 0 }]}>

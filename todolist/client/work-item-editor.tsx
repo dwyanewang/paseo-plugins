@@ -6,8 +6,10 @@ import { Text, View, type NativeSyntheticEvent, type TextInput, type TextInputKe
 import { validateWorkItemFields } from "../shared/limits";
 import { WORK_ITEM_PRIORITIES, WORK_ITEM_STATUSES, type WorkItem, type WorkItemPriority, type WorkItemStatus } from "../shared/schema";
 import { WORK_ITEM_PRIORITY_LABELS, WORK_ITEM_STATUS_LABELS } from "../shared/board";
-import { EdgeFade, PillSelect, PillStrip, WEB_TEXT_INPUT, type MenuItem } from "./floating-menu";
-import { ImageStrip, useDraftImages, type DraftImages } from "./image-attachments";
+import type { WorkItemFileInput } from "../shared/contracts";
+import { AttachmentStrip, useDraftAttachments, type DraftAttachments } from "./attachments";
+import { canPickFiles, draftToFileRef, type DraftFile } from "./files";
+import { EdgeFade, PillSelect, PillStrip, WEB_TEXT_INPUT, useBoxMenu, type MenuItem } from "./floating-menu";
 import { canPasteImages, canTakeImages, type DraftImage } from "./images";
 import { EmbeddedBox, Overlay, OverlayBox, useBox, useOverlay } from "./overlay";
 import { IconAction, KEYS } from "./overlay-parts";
@@ -37,6 +39,8 @@ export interface EditorSubmit {
   defaultPrompt: string;
   /** The full desired image set with in-memory bytes. */
   images: DraftImage[];
+  /** Attached files, already on the daemon host. */
+  files: WorkItemFileInput[];
   status: StartingStatus;
   priority: WorkItemPriority;
   /** Create, then open the execute box for the new card. */
@@ -219,19 +223,28 @@ export function CardTextArea(props: {
   );
 }
 
-/** Attached images under the text, or a note while an existing card's bytes load. */
-export function DraftImageRow(props: { styles: TodoStyles; theme: PluginTheme; drafts: DraftImages; loading?: boolean }) {
+/** Attached images and files under the text, or a note while an existing card's image bytes load. */
+export function DraftAttachmentRow(props: { styles: TodoStyles; theme: PluginTheme; drafts: DraftAttachments; loading?: boolean }) {
   const box = useBox();
+  const { drafts } = props;
   if (props.loading) return <Text style={[props.styles.mono, { marginTop: 8 }]}>Loading images…</Text>;
-  if (props.drafts.images.length === 0) return null;
+  if (drafts.images.length === 0 && drafts.files.length === 0) return null;
   return (
     <View style={{ marginTop: 4 }}>
-      <ImageStrip styles={props.styles} theme={props.theme} images={props.drafts.images} onRemove={props.drafts.remove} size={box.phone ? 48 : 60} />
+      <AttachmentStrip
+        styles={props.styles}
+        theme={props.theme}
+        images={drafts.images}
+        files={drafts.files}
+        onRemoveImage={drafts.removeImage}
+        onRemoveFile={drafts.removeFile}
+        size={box.phone ? 48 : 60}
+      />
     </View>
   );
 }
 
-/** Dashed outline over the whole box while images are dragged over it. */
+/** Dashed outline over the whole box while files are dragged over it. */
 export function DropHint(props: { theme: PluginTheme }) {
   const { theme } = props;
   return (
@@ -254,27 +267,45 @@ export function DropHint(props: { theme: PluginTheme }) {
       }}
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Icon name="Image" size={16} color={theme.colors.accent} />
-        <Text style={{ color: theme.colors.accent, fontSize: 13, fontWeight: "600" }}>Drop images to attach</Text>
+        <Icon name="Paperclip" size={16} color={theme.colors.accent} />
+        <Text style={{ color: theme.colors.accent, fontSize: 13, fontWeight: "600" }}>Drop images or files to attach</Text>
       </View>
     </View>
   );
 }
 
-/** The "+" that attaches images, where this runtime can choose them. */
-export function AddImagesButton(props: { theme: PluginTheme; drafts: DraftImages; disabled?: boolean; onPicked?: () => void }) {
-  if (!canTakeImages()) return null;
+const ATTACH_ITEMS: readonly MenuItem[] = [
+  ...(canTakeImages() ? [{ key: "images", label: "Add images", icon: "Image" }] : []),
+  ...(canPickFiles() ? [{ key: "files", label: "Add files", icon: "Paperclip" }] : []),
+];
+
+/**
+ * The "+" that attaches images and files, as the host composer's does: a menu of what this runtime
+ * can choose, or straight to the chooser when there is only one.
+ */
+export function AttachButton(props: { theme: PluginTheme; drafts: DraftAttachments; disabled?: boolean; onPicked?: () => void }) {
+  const { drafts } = props;
+  const button = useRef<View | null>(null);
+  const pick = (key: string) => void (key === "files" ? drafts.pickFiles() : drafts.pickImages()).then(() => props.onPicked?.());
+  const menu = useBoxMenu({ theme: props.theme, label: "Attach", items: ATTACH_ITEMS, onSelect: pick });
+  const only = ATTACH_ITEMS.length === 1 ? ATTACH_ITEMS[0] : undefined;
+  if (ATTACH_ITEMS.length === 0) return null;
   return (
-    <IconAction
-      theme={props.theme}
-      icon="Plus"
-      label="Add images"
-      tip="Add images"
-      kind="plain"
-      align="start"
-      disabled={Boolean(props.disabled) || props.drafts.picking || props.drafts.full}
-      onPress={() => void props.drafts.pick().then(() => props.onPicked?.())}
-    />
+    <>
+      <View ref={button} collapsable={false}>
+        <IconAction
+          theme={props.theme}
+          icon="Plus"
+          label={only?.label ?? "Attach"}
+          tip={only?.label ?? "Add images or files"}
+          kind="plain"
+          align="start"
+          disabled={Boolean(props.disabled) || drafts.picking || drafts.full}
+          onPress={() => (only ? pick(only.key) : void menu.toggle(button.current))}
+        />
+      </View>
+      {menu.node}
+    </>
   );
 }
 
@@ -283,12 +314,14 @@ export function fieldProblem(invalid: ReturnType<typeof validateWorkItemFields>)
   return invalid && invalid.reason !== "empty" ? `${invalid.field} is ${invalid.reason.replace("_", " ")}.` : null;
 }
 
-export const PLACEHOLDER = `What needs to happen?\nFirst line is the title · !1–!4 sets priority${canPasteImages() ? " · paste or drop images" : ""}`;
+export const PLACEHOLDER = `What needs to happen?\nFirst line is the title · !1–!4 sets priority${canPasteImages() ? " · paste or drop files" : ""}`;
 
 /** What a new-item form holds; kept when it closes without creating, so it comes back. */
 export interface NewItemDraft {
   text: string;
   images: DraftImage[];
+  /** Only files already on the host: an upload stops when the form goes away. */
+  files: DraftFile[];
   projectId: string | null;
   status: StartingStatus;
   priority: WorkItemPriority;
@@ -300,7 +333,7 @@ let newItemDraft: NewItemDraft | null = null;
 const panelDrafts = new Map<string, NewItemDraft>();
 
 function worthKeeping(draft: NewItemDraft): NewItemDraft | null {
-  return draft.text.trim() || draft.images.length > 0 ? draft : null;
+  return draft.text.trim() || draft.images.length > 0 || draft.files.length > 0 ? draft : null;
 }
 
 interface EditorProps {
@@ -331,7 +364,7 @@ export function WorkItemEditor(props: EditorProps) {
 function NewItemBox(props: EditorProps) {
   const { phone } = useOverlay();
   const [initial] = useState<NewItemDraft>(
-    () => newItemDraft ?? { text: "", images: [], projectId: props.initialProjectId, status: props.initialStatus, priority: "none" },
+    () => newItemDraft ?? { text: "", images: [], files: [], projectId: props.initialProjectId, status: props.initialStatus, priority: "none" },
   );
   return (
     <NewItemForm
@@ -365,7 +398,7 @@ export function EmbeddedNewItem(props: {
   onSubmit: (input: EditorSubmit) => Promise<boolean>;
 }) {
   const key = props.project.projectId;
-  const [initial] = useState<NewItemDraft>(() => panelDrafts.get(key) ?? { text: "", images: [], projectId: key, status: "todo", priority: "none" });
+  const [initial] = useState<NewItemDraft>(() => panelDrafts.get(key) ?? { text: "", images: [], files: [], projectId: key, status: "todo", priority: "none" });
   return (
     <NewItemForm
       styles={props.styles}
@@ -424,12 +457,12 @@ function NewItemForm(props: {
   const [priority, setPriority] = useState<WorkItemPriority>(initial.priority);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<TextInput | null>(null);
-  const drafts = useDraftImages(true, initial.images);
+  const drafts = useDraftAttachments(true, { images: initial.images, files: initial.files });
 
   // Going away without creating keeps what was written; creating clears it.
   const submitted = useRef(false);
   const snapshot = useRef<NewItemDraft>(initial);
-  snapshot.current = { text, images: drafts.images, projectId, status, priority };
+  snapshot.current = { text, images: drafts.images, files: drafts.files.filter((file) => file.ready), projectId, status, priority };
   const keep = useRef(props.keep);
   keep.current = props.keep;
   useEffect(
@@ -444,7 +477,7 @@ function NewItemForm(props: {
   const invalid = validateWorkItemFields({ title: draft.title, details: draft.details, defaultPrompt: "" });
   const chosen = projectId ? props.projects.get(projectId) : undefined;
   const project: LockedProject | undefined = props.lockedProject ?? chosen;
-  const canSubmit = !invalid && Boolean(project) && !busy;
+  const canSubmit = !invalid && Boolean(project) && !busy && !drafts.uploading;
   const projects = useMemo(() => projectItems(props.projects, projectId), [props.projects, projectId]);
   // Typing continues after a menu; phones keep the keyboard down until the text is tapped.
   const refocus = () => {
@@ -463,6 +496,7 @@ function NewItemForm(props: {
         details: draft.details,
         defaultPrompt: "",
         images: drafts.images,
+        files: drafts.files.map(draftToFileRef),
         status,
         priority: effectivePriority,
         execute,
@@ -476,10 +510,10 @@ function NewItemForm(props: {
       }
       // Ready for the next one, in the same column. The kept snapshot empties now: "create and
       // run" may close the panel before the cleared form renders.
-      snapshot.current = { text: "", images: [], projectId, status, priority: "none" };
+      snapshot.current = { text: "", images: [], files: [], projectId, status, priority: "none" };
       setText("");
       setPriority("none");
-      drafts.reset([]);
+      drafts.reset({ images: [], files: [] });
       refocus();
     } finally {
       setBusy(false);
@@ -499,10 +533,10 @@ function NewItemForm(props: {
         autoFocus={props.autoFocus}
         onSubmitKey={(kind) => void submit(kind === "run")}
       />
-      <DraftImageRow styles={styles} theme={theme} drafts={drafts} />
+      <DraftAttachmentRow styles={styles} theme={theme} drafts={drafts} />
       {problem ? <Text style={[styles.warning, { marginTop: 8 }]}>{problem}</Text> : null}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10 }}>
-        <AddImagesButton theme={theme} drafts={drafts} onPicked={refocus} />
+        <AttachButton theme={theme} drafts={drafts} onPicked={refocus} />
         <PillStrip theme={theme}>
           {/* A locked project is the workspace's own; the card goes there without a pill to say so. */}
           {props.lockedProject ? null : (

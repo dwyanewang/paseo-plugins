@@ -69,6 +69,11 @@ export interface SafeAreaInsets {
 
 const InsetsContext = createContext<SafeAreaInsets | undefined>(undefined);
 
+/** The window's safe-area insets, or the status bar alone where the host reports none. */
+export function useInsets(): SafeAreaInsets {
+  return useContext(InsetsContext) ?? { top: FALLBACK_TOP_INSET, bottom: 0, left: 0, right: 0 };
+}
+
 /** Hands the host's `layout.insets` to every overlay below, so phone boxes start under the status bar. */
 export function OverlayInsets(props: { insets: SafeAreaInsets | undefined; children: ReactNode }) {
   return <InsetsContext.Provider value={props.insets}>{props.children}</InsetsContext.Provider>;

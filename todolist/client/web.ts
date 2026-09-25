@@ -6,6 +6,7 @@
  */
 import { base64ByteLength, IMAGE_ALLOWED_MIME_TYPES, IMAGE_MAX_BYTES } from "../shared/limits";
 import { createId } from "../shared/ids";
+import type { PickedFile } from "./files";
 import type { DraftImage } from "./images";
 
 /** Claude scales anything larger down to this edge anyway, so a shrunk image loses nothing. */
@@ -28,9 +29,28 @@ export function canTakeImagesWeb(): boolean {
  */
 export async function pickImageDraftsWeb(): Promise<DraftImage[] | null> {
   if (!hasDom()) return null;
-  const files = await chooseFiles();
+  const files = await chooseFiles(IMAGE_ALLOWED_MIME_TYPES.join(","));
   if (!files || files.length === 0) return [];
   return filesToDrafts(Array.from(files));
+}
+
+/**
+ * Opens the browser file chooser for any kind of file. Returns an empty list when the user
+ * cancels, and null without a DOM.
+ */
+export async function pickFilesWeb(): Promise<PickedFile[] | null> {
+  if (!hasDom()) return null;
+  const files = await chooseFiles(null);
+  return files ? Array.from(files).map(toPickedFile) : [];
+}
+
+function toPickedFile(file: File): PickedFile {
+  return {
+    name: file.name || "file",
+    mimeType: file.type,
+    size: file.size,
+    read: (offset, length) => readBlobAsBase64(file.slice(offset, offset + length)),
+  };
 }
 
 /** Whether shortcuts read ⌘ rather than Ctrl here: a Mac or iPad browser or desktop app. */
@@ -94,6 +114,23 @@ export function subscribeMenuKeysWeb(onKey: (key: MenuKeyWeb) => boolean): (() =
     if (!key || !onKey(key)) return;
     event.preventDefault();
     event.stopPropagation();
+  };
+  document.addEventListener("keydown", onKeyDown, true);
+  return () => document.removeEventListener("keydown", onKeyDown, true);
+}
+
+/**
+ * Left and right arrow keys, for paging through images, unless a text field has focus. `onKey`
+ * returns whether it used the key. Returns an unsubscribe, or null without a DOM.
+ */
+export function subscribeArrowKeysWeb(onKey: (direction: -1 | 1) => boolean): (() => void) | null {
+  if (!hasDom()) return null;
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    const direction = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : null;
+    const active = document.activeElement;
+    if (!direction || (active && /^(?:INPUT|TEXTAREA)$/.test(active.tagName))) return;
+    if (onKey(direction)) event.preventDefault();
   };
   document.addEventListener("keydown", onKeyDown, true);
   return () => document.removeEventListener("keydown", onKeyDown, true);
@@ -180,15 +217,15 @@ export function attachMouseScrollWeb(elementId: string): (() => void) | null {
 const DRAG_LINGER_MS = 150;
 
 /**
- * Takes images pasted or dropped onto the element whose DOM id is `targetId` (a React Native
- * `nativeID`, which React Native Web renders as `id`). Other pastes and drops are left alone, so the
- * host's own composer never loses an image to an open Todo box. `onDragging` hears when files are
- * held over the target and when they leave. Returns an unsubscribe, or null without a DOM.
+ * Takes images and other files pasted or dropped onto the element whose DOM id is `targetId` (a
+ * React Native `nativeID`, which React Native Web renders as `id`). Images go to `onImages`, other
+ * files to `onFiles`, or nowhere without it. Pastes and drops elsewhere are left alone, so the
+ * host's own composer never loses an attachment to an open Todo box. `onDragging` hears when files
+ * are held over the target and when they leave. Returns an unsubscribe, or null without a DOM.
  */
-export function subscribeImageInput(
+export function subscribeDroppedFilesWeb(
   targetId: string,
-  onImages: (drafts: DraftImage[]) => void,
-  onDragging?: (dragging: boolean) => void,
+  handlers: { onImages: (drafts: DraftImage[]) => void; onFiles?: (files: PickedFile[]) => void; onDragging?: (dragging: boolean) => void },
 ): (() => void) | null {
   if (!hasDom()) return null;
   const inside = (target: EventTarget | null): boolean => {
@@ -197,16 +234,19 @@ export function subscribeImageInput(
     }
     return false;
   };
-  const take = (files: File[]) => {
-    if (files.length > 0) void filesToDrafts(files).then(onImages);
+  /** Whether anything was taken. */
+  const take = (data: DataTransfer): boolean => {
+    const { images, others } = splitFiles(data);
+    const kept = handlers.onFiles ? others : [];
+    if (images.length > 0) void filesToDrafts(images).then(handlers.onImages);
+    if (kept.length > 0) handlers.onFiles?.(kept.map(toPickedFile));
+    return images.length > 0 || kept.length > 0;
   };
   const onPaste = (event: ClipboardEvent) => {
     if (!inside(event.target) || !event.clipboardData) return;
-    const files = imageFiles(event.clipboardData);
-    if (files.length === 0) return;
     // A screenshot carries no text; keep the default when there is text to paste alongside.
-    if (!event.clipboardData.types.includes("text/plain")) event.preventDefault();
-    take(files);
+    const text = event.clipboardData.types.includes("text/plain");
+    if (take(event.clipboardData) && !text) event.preventDefault();
   };
   // `dragleave` also fires when crossing into a child, so the drag counts as over the target for
   // as long as `dragover` keeps repeating there.
@@ -217,7 +257,7 @@ export function subscribeImageInput(
     lingering = next ? setTimeout(() => setDragging(false), DRAG_LINGER_MS) : null;
     if (next === dragging) return;
     dragging = next;
-    onDragging?.(next);
+    handlers.onDragging?.(next);
   };
   const onDragOver = (event: DragEvent) => {
     if (!inside(event.target) || !event.dataTransfer?.types.includes("Files")) return;
@@ -228,10 +268,7 @@ export function subscribeImageInput(
   const onDrop = (event: DragEvent) => {
     if (!inside(event.target) || !event.dataTransfer) return;
     setDragging(false);
-    const files = imageFiles(event.dataTransfer);
-    if (files.length === 0) return;
-    event.preventDefault();
-    take(files);
+    if (take(event.dataTransfer)) event.preventDefault();
   };
   document.addEventListener("paste", onPaste, true);
   document.addEventListener("dragover", onDragOver, true);
@@ -244,14 +281,15 @@ export function subscribeImageInput(
   };
 }
 
-function imageFiles(data: DataTransfer): File[] {
-  const files: File[] = [];
+function splitFiles(data: DataTransfer): { images: File[]; others: File[] } {
+  const images: File[] = [];
+  const others: File[] = [];
   for (const item of Array.from(data.items)) {
-    if (item.kind !== "file" || !item.type.startsWith("image/")) continue;
+    if (item.kind !== "file") continue;
     const file = item.getAsFile();
-    if (file) files.push(file);
+    if (file) (item.type.startsWith("image/") ? images : others).push(file);
   }
-  return files;
+  return { images, others };
 }
 
 async function filesToDrafts(files: File[]): Promise<DraftImage[]> {
@@ -335,11 +373,12 @@ function loadImage(file: File): Promise<HTMLImageElement | null> {
   });
 }
 
-function chooseFiles(): Promise<FileList | null> {
+/** `accept` narrows the chooser to those types; null offers every file. */
+function chooseFiles(accept: string | null): Promise<FileList | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = IMAGE_ALLOWED_MIME_TYPES.join(",");
+    if (accept) input.accept = accept;
     input.multiple = true;
     input.style.position = "fixed";
     input.style.left = "-9999px";

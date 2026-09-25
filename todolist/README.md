@@ -19,7 +19,7 @@ needs:
 
 | Path | Owns |
 | --- | --- |
-| `shared/schema.ts` | Settings document (`todo-data`, version 3): work items with board status, priority and number, image references, claims, attempts, agent links, retired IDs. |
+| `shared/schema.ts` | Settings document (`todo-data`, version 3): work items with board status, priority and number, image and file references, claims, attempts, agent links, retired IDs. |
 | `shared/images.ts` | Third settings document (`todo-images`, version 1): image bytes as base64, keyed by id, referenced from work items. Kept out of `todo-data` so image data never bloats its frequent writes or migrations. Client-written; pruned when the referencing card drops it or is purged. |
 | `shared/migrate.ts` | Stepwise migrations. 1 → 2: open items land in To do, In progress or In review by their agents, and numbers follow creation order. 2 → 3: manual ordering is dropped and every item gets an unset priority. |
 | `shared/board.ts` | Board rules: status and priority labels, card order, what each column's "+" does, and the automatic moves (`deriveAutoMove`). Moves never bump the content `version`. |
@@ -33,10 +33,11 @@ needs:
 | `client/run.ts` | Direct run: acquire, request-start milestones, `workspace.agents.create`, agent-observation. Same attempt records the composer path writes. |
 | `client/overlay.tsx`, `client/overlay-parts.tsx`, `client/floating-menu.tsx` | Every Todo pop-up is drawn by the plugin, not the host dialog: on the host's `Overlay` layer where it exists (the host owns focus, Escape, Back and stacking), otherwise a React Native modal with the focus guard `guardModalWeb`; menus inside a box close first on Escape, Back or a press outside, the bare box (small print on top, content that scrolls, a footer that stays, the round × outside its corner; 680 or 440 wide, pinned to the top on phones), menus next to their button, pills with floating menus (filter, sections, multiple choice, a note on top) in one row that scrolls sideways (touch; a mouse drag or the wheel on the web) with faded edges, icon and labelled buttons, one-line notes, and the confirmation box. |
 | `client/board*.tsx`, `client/card-panel.tsx`, `client/move-menu.tsx`, `client/card-picker.tsx` | Board view: project filter and status filter menus, search, full-height columns that scroll their own cards (side by side, scrolling sideways, or status tabs by width), cards, pointer drag between columns on wide layouts, the card menu (Edit, Move to), the card menu behind a column's "+", and the card panel: details and editing in one box, with status, priority and project (rebind) pills, the agent and every attempt. |
-| `client/work-item-editor.tsx`, `client/image-attachments.tsx` | The new-item form, in the New box and embedded at the top of the header panel (project fixed to the workspace's with no pill for it, a draft kept per project, cleared after each card), and the pieces the card panel edits with: text that grows up to a cap, attached images, and one tool row with "+", the project, column and priority pills and icon-only actions. A closed new-item box keeps its draft. Image drafts (chooser, paste, drop) are shared with the header panel. |
+| `client/work-item-editor.tsx`, `client/attachments.tsx`, `client/files.ts`, `client/image-preview.tsx` | The new-item form, in the New box and embedded at the top of the header panel (project fixed to the workspace's with no pill for it, a draft kept per project, cleared after each card), and the pieces the card panel edits with: text that grows up to a cap, attached images and files, and one tool row with "+" (a menu of Add images / Add files, as in the host composer), the project, column and priority pills and icon-only actions. A closed new-item box keeps its draft. Attachment drafts (choosers, paste, drop, file uploads) are shared with the header panel. A thumbnail anywhere opens the image full-window. |
 | `client/overlay-entries.tsx` | The new-item and execute boxes the host mounts with `openOverlay`, over whatever page is open: the execute box from the header panel (Run, Create & run), the new-item box from `/todo` or "New todo…" without text. |
 | `client/execute-form.ts`, `client/execute-box.tsx`, `client/execute-modal.tsx`, `client/select-row.tsx` | Starting a run: the shared form logic, the execute box (prompt on top, launch / workspace / model / mode / thinking pills), and the older host-dialog layout with its select rows, kept only for the header panel on hosts without `openOverlay`. |
 | `server/image-files.ts` | `todo.images.stage`: writes card images to files on the daemon host for a launch. |
+| `server/card-files.ts` | `todo.files.write` and `todo.files.resolve`: attached files, uploaded in pieces to the daemon host, and found again at launch; unreferenced files are pruned after a week. |
 | `client/styles.ts`, `client/components.tsx` | Shared look: spacing and type scale, surfaces derived from the host theme (light or dark), and the buttons, chips, segmented filter, notices, fields and radio lists every screen uses. |
 | `client/continue-modal.tsx`, `client/follow-up.ts` | Moving into In progress: the follow-up and approval box, and the stable-message-ID send. |
 | `client/` | React Native surface, sidebar item, workspace panel, settings screen, launch flows, recovery screen. |
@@ -59,14 +60,24 @@ needs:
   composer** seeds the native draft and you press send. Both write the same claim, attempt and
   correlation labels, so they read and reconcile identically.
 - A card can carry images (PNG, JPEG, GIF, WebP) that describe the work, from the board editor or
-  the workspace header panel: the "+" chooser, paste, or drop. That needs the desktop or web app
-  (native surfaces have no file chooser). An image over the size cap is scaled down to a 1568px
+  the workspace header panel: the "+" chooser, paste, or drop. On iOS and Android the "+" opens the
+  photo library through the host's `pickImages`; paste and drop are web only. An image over the size cap is scaled down to a 1568px
   edge and re-encoded rather than refused. Bytes live in the `todo-images` document and are capped
-  per image and per card by `shared/limits.ts`.
+  per image and per card by `shared/limits.ts`. Pressing a thumbnail opens the image full-window,
+  with the card's other images a press or an arrow key away: in the host's zoomable viewer
+  (`openImagePreview`) where the host has one, otherwise in the plugin's own.
+- A card can also carry files of any kind, such as documents, through the "+" menu's **Add files**,
+  paste, or drop. The host's `pickFiles` chooses them on every platform, iOS and Android included;
+  hosts without it fall back to the browser's chooser, so there it works on desktop and web only.
+  Each file uploads to `$PASEO_HOME/plugin-data/todo/files/<id>/<name>` in 256 KB pieces as soon as
+  it is added, so the card only stores a reference; up to 10 files of 50 MB each. A file no card
+  references is removed a week after it was written, which leaves time for an unsaved draft and for
+  agents that were given its path.
 - At launch the server writes the card's images to `$PASEO_HOME/plugin-data/todo/images/` (named by
   image id, never rewritten, orphans removed). **Run now** sends each image inline and as an
   `uploaded_file` attachment with that path, since some providers drop inline images from later
-  turns; **In the composer** takes text only, so the paths are appended to the prompt.
+  turns; **In the composer** takes text only, so the paths are appended to the prompt. Attached
+  files go the same way: `uploaded_file` attachments on **Run now**, paths in the composer prompt.
 - A new worktree gets a branch named after the card (`todo-<number>-<title>-<suffix>`, editable) from
   the project's default branch unless another base is given. Creating the worktree is a
   request-start: if it fails, the attempt is `outcome_unknown` and nothing is retried.

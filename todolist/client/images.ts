@@ -6,7 +6,7 @@ import { IMAGE_MAX_COUNT, type FieldError } from "../shared/limits";
 import type { TodoImageRef } from "../shared/schema";
 import { pickImages } from "@getpaseo/plugin/client/react-native";
 import { createId } from "../shared/ids";
-import { canTakeImagesWeb, pickImageDraftsWeb, subscribeImageInput } from "./web";
+import { canTakeImagesWeb, pickImageDraftsWeb } from "./web";
 
 /**
  * An image the editor is working with: metadata plus the in-memory base64 bytes. Existing images
@@ -76,18 +76,6 @@ export async function pickImageDrafts(limit: number): Promise<DraftImage[] | nul
     ...(image.fileName ? { name: image.fileName } : {}),
     byteLength: image.byteLength,
   }));
-}
-
-/**
- * Delivers images pasted or dropped inside the view with this `nativeID`, and tells `onDragging`
- * while files are held over it; null without a DOM.
- */
-export function subscribePastedImages(
-  targetId: string,
-  onImages: (drafts: DraftImage[]) => void,
-  onDragging?: (dragging: boolean) => void,
-): (() => void) | null {
-  return subscribeImageInput(targetId, onImages, onDragging);
 }
 
 export function describeImageError(reason: Extract<FieldError, { field: "images" }>["reason"]): string {

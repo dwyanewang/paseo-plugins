@@ -1,6 +1,6 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
-import { IMAGE_MAX_COUNT } from "./limits";
+import { FILE_CHUNK_BYTES, FILE_MAX_BYTES, FILE_MAX_COUNT, IMAGE_MAX_COUNT } from "./limits";
 import {
   AgentLinkSchema,
   AttemptFactSchema,
@@ -23,6 +23,15 @@ export const WorkItemImageInputSchema = z.object({
   byteLength: z.number().int().nonnegative(),
 });
 export type WorkItemImageInput = z.infer<typeof WorkItemImageInputSchema>;
+
+/** A file reference as the client submits it, once `todo.files.write` has stored the bytes. */
+export const WorkItemFileInputSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  mimeType: z.string(),
+  byteLength: z.number().int().nonnegative(),
+});
+export type WorkItemFileInput = z.infer<typeof WorkItemFileInputSchema>;
 
 /**
  * Stable business error codes. Transport errors are never mapped onto these; a rejected RPC
@@ -97,6 +106,7 @@ export const createWorkItem = defineRpc({
     details: z.string(),
     defaultPrompt: z.string(),
     images: z.array(WorkItemImageInputSchema).optional(),
+    files: z.array(WorkItemFileInputSchema).optional(),
     /** Initial column: work starts in Backlog or To do, the later columns are reached by moving. */
     status: z.enum(["backlog", "todo"]).optional(),
     priority: WorkItemPrioritySchema.optional(),
@@ -117,6 +127,8 @@ export const updateWorkItem = defineRpc({
       priority: WorkItemPrioritySchema.optional(),
       /** Replaces the whole image set when present; an empty array clears it. */
       images: z.array(WorkItemImageInputSchema).optional(),
+      /** Replaces the whole file set when present; an empty array clears it. */
+      files: z.array(WorkItemFileInputSchema).optional(),
     }),
   }),
   output: result({ workItem: WorkItemSchema, seq: z.number().int() }),
@@ -277,15 +289,15 @@ export const checkLaunch = defineRpc({
   }),
 });
 
-/** A card image written to a file on the daemon host, shaped like a host `uploaded_file`. */
-export const StagedImageFileSchema = z.object({
+/** A card attachment as a file on the daemon host, shaped like a host `uploaded_file`. */
+export const HostFileSchema = z.object({
   id: z.string(),
   fileName: z.string(),
   mimeType: z.string(),
   size: z.number().int().nonnegative(),
   path: z.string(),
 });
-export type StagedImageFile = z.infer<typeof StagedImageFileSchema>;
+export type HostFile = z.infer<typeof HostFileSchema>;
 
 /**
  * Writes card images from the `todo-images` document to files, so a launch can hand the agent
@@ -294,7 +306,41 @@ export type StagedImageFile = z.infer<typeof StagedImageFileSchema>;
 export const stageImages = defineRpc({
   name: "todo.images.stage",
   input: z.object({ ids: z.array(z.string().min(1)).max(IMAGE_MAX_COUNT) }),
-  output: result({ files: z.array(StagedImageFileSchema), missing: z.array(z.string()) }),
+  output: result({ files: z.array(HostFileSchema), missing: z.array(z.string()) }),
+});
+
+/** An attached file as the daemon host holds it. */
+export const StoredFileSchema = z.object({
+  id: z.string(),
+  size: z.number().int().nonnegative(),
+  path: z.string(),
+});
+export type StoredFile = z.infer<typeof StoredFileSchema>;
+
+/**
+ * Stores one piece of an attached file on the daemon host, in order: `offset` is how much of it
+ * the server already holds, and a piece at 0 starts over. The piece that brings it to `size`
+ * finishes the file and returns it; until then `file` is absent.
+ */
+export const writeFile = defineRpc({
+  name: "todo.files.write",
+  input: z.object({
+    id: z.string().regex(/^file_[a-z0-9]+$/),
+    /** The finished file takes this name, made safe for the disk. */
+    name: z.string().min(1),
+    size: z.number().int().nonnegative().max(FILE_MAX_BYTES),
+    offset: z.number().int().nonnegative(),
+    /** Base64 of at most `FILE_CHUNK_BYTES` decoded bytes. */
+    data: z.string().max(Math.ceil(FILE_CHUNK_BYTES / 3) * 4),
+  }),
+  output: result({ received: z.number().int().nonnegative(), file: StoredFileSchema.optional() }),
+});
+
+/** Where attached files are on the daemon host, for a launch to hand them to the agent. */
+export const resolveFiles = defineRpc({
+  name: "todo.files.resolve",
+  input: z.object({ ids: z.array(z.string().min(1)).max(FILE_MAX_COUNT) }),
+  output: result({ files: z.array(StoredFileSchema), missing: z.array(z.string()) }),
 });
 
 export const todoRpcs = {
@@ -312,4 +358,6 @@ export const todoRpcs = {
   forgetAttempt,
   checkLaunch,
   stageImages,
+  writeFile,
+  resolveFiles,
 } as const;

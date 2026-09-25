@@ -26,6 +26,7 @@ import {
   validateInitiatorLabel,
   validateSeedPrompt,
   validateWorkItemFields,
+  validateWorkItemFiles,
   validateWorkItemImages,
   type FieldError,
 } from "../shared/limits";
@@ -34,11 +35,12 @@ import type {
   Attempt,
   LaunchClaim,
   TodoDocument,
+  TodoFileRef,
   TodoImageRef,
   WorkItem,
   WorkItemStatus,
 } from "../shared/schema";
-import type { WorkItemImageInput } from "../shared/contracts";
+import type { WorkItemFileInput, WorkItemImageInput } from "../shared/contracts";
 import { aggregateWorkItem, isActiveDisplayState } from "../shared/state";
 import type { MutationError, MutationOutcome } from "./store";
 
@@ -91,6 +93,19 @@ function reconcileImages(
     current.every((ref, index) => desired[index]?.id === ref.id);
   if (unchanged) return null;
   return desired.map(toRef);
+}
+
+function toFileRef(input: WorkItemFileInput): TodoFileRef {
+  return { id: input.id, name: input.name, mimeType: input.mimeType, byteLength: input.byteLength };
+}
+
+/** Like `reconcileImages`: null when the file set is unchanged. */
+function reconcileFiles(current: readonly TodoFileRef[], desired: readonly WorkItemFileInput[]): TodoFileRef[] | null {
+  const unchanged =
+    current.length === desired.length &&
+    current.every((ref, index) => desired[index]?.id === ref.id);
+  if (unchanged) return null;
+  return desired.map(toFileRef);
 }
 
 export function attemptsForWorkItem(document: TodoDocument, workItemId: string): Attempt[] {
@@ -169,6 +184,8 @@ export function createWorkItemMutation(
   if (invalid) return fieldError(invalid);
   const imagesInvalid = validateWorkItemImages(input.images);
   if (imagesInvalid) return fieldError(imagesInvalid);
+  const filesInvalid = validateWorkItemFiles(input.files);
+  if (filesInvalid) return fieldError(filesInvalid);
   const status = input.status ?? "todo";
   const workItem: WorkItem = {
     id: input.id,
@@ -182,6 +199,7 @@ export function createWorkItemMutation(
     details: input.details,
     defaultPrompt: input.defaultPrompt,
     images: buildImages(input.images),
+    files: (input.files ?? []).map(toFileRef),
     status,
     statusChangedAt: now,
     statusReason: "created",
@@ -230,6 +248,8 @@ export function updateWorkItemMutation(
   if (invalid) return fieldError(invalid);
   const imagesInvalid = validateWorkItemImages(input.patch.images);
   if (imagesInvalid) return fieldError(imagesInvalid);
+  const filesInvalid = validateWorkItemFiles(input.patch.files);
+  if (filesInvalid) return fieldError(filesInvalid);
   const patch: Partial<WorkItem> = {};
   if (input.patch.title !== undefined && input.patch.title.trim() !== item.title) {
     patch.title = input.patch.title.trim();
@@ -246,6 +266,10 @@ export function updateWorkItemMutation(
   if (input.patch.images !== undefined) {
     const nextImages = reconcileImages(item.images, input.patch.images);
     if (nextImages) patch.images = nextImages;
+  }
+  if (input.patch.files !== undefined) {
+    const nextFiles = reconcileFiles(item.files, input.patch.files);
+    if (nextFiles) patch.files = nextFiles;
   }
   if (Object.keys(patch).length === 0) return { status: "unchanged", result: { workItem: item } };
   const workItem = touched(item, now, patch);

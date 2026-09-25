@@ -15,9 +15,14 @@ export function deriveSeedPrompt(
   return details.length > 0 ? `${title}\n\n${details}` : title;
 }
 
-/** The composer takes only text, so a card's images reach it as paths the agent can open. */
-export function appendImagePaths(prompt: string, files: readonly { path: string }[]): string {
-  if (files.length === 0) return prompt;
-  const lines = files.map((file) => `- ${file.path}`);
-  return `${prompt}\n\nImages attached to this task (open them to view):\n${lines.join("\n")}`;
+/** The composer takes only text, so a card's images and files reach it as paths the agent can open. */
+export function appendAttachmentPaths(
+  prompt: string,
+  attachments: { images: readonly { path: string }[]; files: readonly { path: string }[] },
+): string {
+  const sections: string[] = [];
+  const list = (files: readonly { path: string }[]) => files.map((file) => `- ${file.path}`).join("\n");
+  if (attachments.images.length > 0) sections.push(`Images attached to this task (open them to view):\n${list(attachments.images)}`);
+  if (attachments.files.length > 0) sections.push(`Files attached to this task:\n${list(attachments.files)}`);
+  return sections.length > 0 ? `${prompt}\n\n${sections.join("\n\n")}` : prompt;
 }

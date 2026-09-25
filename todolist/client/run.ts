@@ -1,6 +1,6 @@
 import type { usePaseo } from "@getpaseo/plugin/client";
 import type { z } from "zod";
-import type { reportLaunchProgress, StagedImageFile } from "../shared/contracts";
+import type { reportLaunchProgress, HostFile } from "../shared/contracts";
 import { computeRequestFingerprint } from "../shared/fingerprint";
 import { createId } from "../shared/ids";
 import { buildTodoLabels } from "../shared/labels";
@@ -42,10 +42,11 @@ export interface RunInput {
   /** Image bytes to attach to the agent's first prompt; resolved from the card's references. */
   images?: { data: string; mimeType: string }[];
   /**
-   * The same images as files on the daemon host. The inline copy only lives in the first turn's
-   * context, and some providers drop it later; a path lets the agent open the image again.
+   * The same images as files on the daemon host, then the card's attached files. The inline copy
+   * only lives in the first turn's context, and some providers drop it later; a path lets the
+   * agent open the image again.
    */
-  files?: StagedImageFile[];
+  files?: HostFile[];
   rpcs: LaunchRpcs;
   onChange: () => void;
 }

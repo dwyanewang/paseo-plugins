@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PROMPT_MAX_BYTES, validateSeedPrompt } from "../shared/limits";
-import { appendImagePaths, deriveSeedPrompt } from "../shared/prompt";
+import { appendAttachmentPaths, deriveSeedPrompt } from "../shared/prompt";
 
 describe("Todo launch seed prompt", () => {
   it("uses an explicit non-blank default prompt", () => {
@@ -43,14 +43,20 @@ describe("Todo launch seed prompt", () => {
   });
 });
 
-describe("Todo image paths in a composer prompt", () => {
-  it("lists each staged file after the prompt", () => {
-    expect(appendImagePaths("Build the page", [{ path: "/p/img_a.png" }, { path: "/p/img_b.jpg" }])).toBe(
+describe("Todo attachment paths in a composer prompt", () => {
+  it("lists each staged image after the prompt", () => {
+    expect(appendAttachmentPaths("Build the page", { images: [{ path: "/p/img_a.png" }, { path: "/p/img_b.jpg" }], files: [] })).toBe(
       "Build the page\n\nImages attached to this task (open them to view):\n- /p/img_a.png\n- /p/img_b.jpg",
     );
   });
 
-  it("leaves the prompt alone without files", () => {
-    expect(appendImagePaths("Build the page", [])).toBe("Build the page");
+  it("lists attached files under their own heading, after the images", () => {
+    expect(appendAttachmentPaths("Build the page", { images: [{ path: "/p/img_a.png" }], files: [{ path: "/f/file_a/spec.pdf" }] })).toBe(
+      "Build the page\n\nImages attached to this task (open them to view):\n- /p/img_a.png\n\nFiles attached to this task:\n- /f/file_a/spec.pdf",
+    );
+  });
+
+  it("leaves the prompt alone without attachments", () => {
+    expect(appendAttachmentPaths("Build the page", { images: [], files: [] })).toBe("Build the page");
   });
 });

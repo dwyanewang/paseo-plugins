@@ -5,7 +5,8 @@ import { Text, TextInput, View } from "react-native";
 import type { WorkItem } from "../shared/schema";
 import { useExecuteForm, type ExecuteSubmit } from "./execute-form";
 import { PillSelect, PillStrip, WEB_TEXT_INPUT, type MenuItem } from "./floating-menu";
-import { ImageStrip } from "./image-attachments";
+import { AttachmentStrip } from "./attachments";
+import { refToDraftFile } from "./files";
 import { NEW_WORKSPACE, NEW_WORKTREE } from "./launch-defaults";
 import { LAUNCH_UPGRADE_NOTICE } from "./launch-guard";
 import { MetaLine, Overlay, OverlayBox, useOverlay } from "./overlay";
@@ -88,6 +89,7 @@ function ExecuteBody(props: ExecuteBoxProps & { item: WorkItem }) {
   const modeLabel = form.modes.find((option) => option.value === form.effectiveModeId)?.label;
   const thinkingLabel = form.thinkingOptions.find((option) => option.value === form.effectiveThinkingOptionId)?.label;
   const images = form.images;
+  const files = useMemo(() => item.files.map(refToDraftFile), [item.files]);
 
   return (
     <OverlayBox
@@ -122,13 +124,11 @@ function ExecuteBody(props: ExecuteBoxProps & { item: WorkItem }) {
         editable={!form.busy}
         onSubmitKey={() => void form.submit()}
       />
-      {images.length > 0 ? (
+      {images.length > 0 || files.length > 0 ? (
         <View style={{ marginTop: 4 }}>
-          <ImageStrip styles={styles} theme={theme} images={images} size={phone ? 48 : 60} />
+          <AttachmentStrip styles={styles} theme={theme} images={images} files={files} size={phone ? 48 : 60} />
           <InlineNote theme={theme} kind="info">
-            {run
-              ? `${images.length === 1 ? "The image is" : `${images.length} images are`} sent with the prompt, and saved as ${images.length === 1 ? "a file" : "files"} the agent can open again.`
-              : `The composer takes text only, so ${images.length === 1 ? "the image's path is" : "the images' paths are"} added to the prompt.`}
+            {attachmentNote(run, images.length, files.length)}
           </InlineNote>
         </View>
       ) : null}
@@ -233,6 +233,17 @@ function ExecuteBody(props: ExecuteBoxProps & { item: WorkItem }) {
 }
 
 /** A one-line input inside a sentence, such as the branch of a new worktree. */
+/** How the card's attachments reach the agent, which depends on where it starts. */
+function attachmentNote(run: boolean, images: number, files: number): string {
+  const count = (n: number, noun: string) => (n === 1 ? `the ${noun}` : `${n} ${noun}s`);
+  if (!run) return "The composer takes text only, so the attachments' paths are added to the prompt.";
+  const parts = [
+    images > 0 ? `${images === 1 ? "The image is" : `${images} images are`} sent with the prompt, and saved as ${images === 1 ? "a file" : "files"} the agent can open again.` : null,
+    files > 0 ? `The agent gets ${count(files, "file")} as ${files === 1 ? "a path" : "paths"} it can open.` : null,
+  ];
+  return parts.filter(Boolean).join(" ");
+}
+
 function SmallInput(props: { theme: PluginTheme; value: string; onChangeText: (value: string) => void; placeholder: string; label: string; editable: boolean; grow?: boolean }) {
   const { theme } = props;
   return (

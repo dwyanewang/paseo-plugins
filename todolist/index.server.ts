@@ -4,6 +4,7 @@ import { todoImages } from "./shared/images";
 import { todoPrefs } from "./shared/prefs";
 import { todoData } from "./shared/schema";
 import { registerTodoHandlers } from "./server/handlers";
+import { registerFileHandlers } from "./server/card-files";
 import { registerImageHandlers } from "./server/image-files";
 import { createTodoLogger } from "./server/log";
 import { TodoReconciler } from "./server/reconcile";
@@ -44,6 +45,7 @@ export default function contribute(server: PluginServerContext) {
   });
   registerTodoHandlers({ server, paseo: server.paseo, store, reconciler, log });
   registerImageHandlers({ server, images, log });
+  registerFileHandlers({ server, store, log });
   // Synchronous registration above; bootstrap runs asynchronously inside start().
   const stop = reconciler.start();
   return async () => {

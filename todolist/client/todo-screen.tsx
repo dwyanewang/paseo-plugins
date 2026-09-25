@@ -386,7 +386,7 @@ function TodoReady(props: {
           }
           refs = saved;
         }
-        return actions.update(view.item, { title: edit.title, details: edit.details, defaultPrompt: edit.defaultPrompt, priority: edit.priority, ...(refs ? { images: refs } : {}) });
+        return actions.update(view.item, { title: edit.title, details: edit.details, defaultPrompt: edit.defaultPrompt, priority: edit.priority, files: edit.files, ...(refs ? { images: refs } : {}) });
       },
       move: (view, next) => requestMove(view, next),
       continueAgent: (view) => {

@@ -14,6 +14,7 @@ import {
 import { applyAgentSnapshotMutation, canonicalizeAgentSnapshot } from "../server/apply";
 import type { TodoDocument, WorkItemStatus } from "../shared/schema";
 import { buildTodoLabels } from "../shared/labels";
+import { FILE_MAX_BYTES, FILE_MAX_COUNT } from "../shared/limits";
 import { fakeAgent } from "./helpers/fake-paseo";
 import { NOW, baseDocument, createInput, launchInput, withClaim, withWorkItem } from "./helpers/setup";
 
@@ -100,6 +101,21 @@ describe("work item create", () => {
       createWorkItemMutation(baseDocument(), { ...createInput("wi-huge"), images: [{ id: "img_3", mimeType: "image/png", byteLength: 5 * 1024 * 1024 }] }, NOW),
     ).toMatchObject({ status: "invalid_input", details: { field: "images", reason: "too_large" } });
   });
+
+  it("stores file references and rejects an oversized or overfull set", () => {
+    const spec = { id: "file_1", name: "spec.pdf", mimeType: "application/pdf", byteLength: 2048 };
+    const created = commit(createWorkItemMutation(baseDocument(), { ...createInput("wi-file"), files: [spec] }, NOW));
+    expect(created.workItems["wi-file"]?.files).toEqual([spec]);
+    expect(commit(createWorkItemMutation(baseDocument(), createInput("wi-none"), NOW)).workItems["wi-none"]?.files).toEqual([]);
+    expect(
+      createWorkItemMutation(baseDocument(), { ...createInput("wi-huge"), files: [{ ...spec, byteLength: FILE_MAX_BYTES + 1 }] }, NOW),
+    ).toMatchObject({ status: "invalid_input", details: { field: "files", reason: "too_large" } });
+    const many = Array.from({ length: FILE_MAX_COUNT + 1 }, (_, index) => ({ ...spec, id: `file_${index}` }));
+    expect(createWorkItemMutation(baseDocument(), { ...createInput("wi-many"), files: many }, NOW)).toMatchObject({
+      status: "invalid_input",
+      details: { field: "files", reason: "too_many" },
+    });
+  });
 });
 
 describe("versioned edits", () => {
@@ -135,6 +151,17 @@ describe("versioned edits", () => {
       updateWorkItemMutation(added, { expectedIncarnationId: "inc-1", id: "wi-1", expectedVersion: 2, patch: { images: [] } }, NOW),
     );
     expect(cleared.workItems["wi-1"]?.images).toEqual([]);
+  });
+
+  it("replaces the file set only when it actually changes", () => {
+    const spec = { id: "file_1", name: "spec.pdf", mimeType: "application/pdf", byteLength: 10 };
+    const edit = (document: TodoDocument, version: number, files: (typeof spec)[]) =>
+      updateWorkItemMutation(document, { expectedIncarnationId: "inc-1", id: "wi-1", expectedVersion: version, patch: { files } }, NOW);
+    const added = commit(edit(withWorkItem(baseDocument(), "wi-1"), 1, [spec]));
+    expect(added.workItems["wi-1"]).toMatchObject({ version: 2, files: [spec] });
+    // A save that did not touch the files sends the same set again.
+    expect(edit(added, 2, [spec]).status).toBe("unchanged");
+    expect(commit(edit(added, 2, [])).workItems["wi-1"]?.files).toEqual([]);
   });
 
   it("moves are last-writer-wins, keep the content version, and track completion", () => {
