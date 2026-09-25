@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import type { PaseoApi, PaseoAgent, PaseoWorkspace } from "@getpaseo/client";
 import type { PluginHookAgent, PluginServerContext } from "@getpaseo/plugin/server";
 import type { AgentPermissionRequest } from "@getpaseo/protocol/agent-types";
@@ -6,6 +7,7 @@ import { NotificationEngine } from "./server/engine";
 import { createMailSender } from "./server/mailer";
 import { LIVE_RECHECK_MS } from "./server/constants";
 import { isWatching, type PresenceLike } from "./server/presence";
+import { testMessage } from "./server/notices";
 import { sendStartupNotice } from "./server/startup";
 import type { AgentEntry, NotificationWorkspace, RuntimeInspection } from "./server/types";
 import { readSmtpConfig, saveSmtpConfig, sendTestMail } from "./shared/smtp";
@@ -121,7 +123,7 @@ export default function contribute(server: PluginServerContext) {
     );
   void readCredentials(server.secrets)
     .then((credentials) => {
-      if (credentials) return sendStartupNotice(sender, log);
+      if (credentials) return sendStartupNotice(sender, hostname(), log);
       log("未配置发件邮箱，在 设置 → 插件 → mail-notify 里填写");
       return false;
     })
@@ -135,8 +137,9 @@ export default function contribute(server: PluginServerContext) {
     status: await writeConfig(server.secrets, config, password),
   }));
   server.handle(sendTestMail, async () => {
-    const text = "🔔 Paseo 邮件通知测试：收到这封邮件说明配置正确";
-    const result = await sender.sendDetailed({ summary: text, body: text });
+    const config = await readConfig(server.secrets);
+    if (!config) return { status: "unconfigured" as const };
+    const result = await sender.sendDetailed(testMessage(config));
     return result.status === "sent" ? { status: "sent" as const } : result;
   });
 

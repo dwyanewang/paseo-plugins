@@ -35,7 +35,9 @@ export interface RuntimeInspection {
 }
 
 export interface OutgoingMessage {
-  /** One line per notification; the mail subject is derived from it. */
+  /** Short mail subject; derived from `summary` when absent. */
+  subject?: string;
+  /** One line per notification. */
   summary: string;
   /** Full plain-text body: the summary followed by per-agent details. */
   body: string;

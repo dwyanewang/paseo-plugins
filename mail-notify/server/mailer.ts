@@ -65,7 +65,7 @@ export function createMailSender(secrets: PluginSecretStore, options: MailSender
     }
     try {
       const messageId = await transport(credentials, {
-        subject: mailSubject(message.summary),
+        subject: message.subject ?? mailSubject(message.summary),
         text: message.body,
         ...(message.html ? { html: message.html } : {}),
       });

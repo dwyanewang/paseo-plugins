@@ -51,6 +51,48 @@ export function formatRecord(record: NotificationRecord): string {
   return `✅ ${project} · ${branch} · ${provider} 完成${durationSuffix(record)} · ${status}`;
 }
 
+// WeChat's QQ Mail reminder cuts a subject after about 68 UTF-8 bytes (roughly twenty Chinese
+// characters), so the subject leads with the outcome and keeps the task label short.
+// Measured in display width: a Chinese character counts 2, ASCII 1, so both scripts get the same room.
+const SUBJECT_LABEL_WIDTH = 20;
+
+function charWidth(char: string): number {
+  return char.charCodeAt(0) < 0x80 ? 1 : 2;
+}
+
+function subjectLabel(record: NotificationRecord): string {
+  const label = record.agentTitle?.trim() || workspaceLabel(record.workspace).project;
+  const chars = [...label];
+  if (chars.reduce((width, char) => width + charWidth(char), 0) <= SUBJECT_LABEL_WIDTH) return label;
+  let width = 0;
+  let kept = "";
+  for (const char of chars) {
+    // Leave room for the ellipsis.
+    if (width + charWidth(char) > SUBJECT_LABEL_WIDTH - 1) break;
+    width += charWidth(char);
+    kept += char;
+  }
+  return `${kept}…`;
+}
+
+function recordSubject(record: NotificationRecord): string {
+  const label = subjectLabel(record);
+  if (record.kind === "permission") return `⏸ 待批准 · ${label}`;
+  const outcome = record.kind === "failed" ? "❌ 失败" : "✅ 完成";
+  return `${outcome} · ${label}${durationSuffix(record)}`;
+}
+
+export function formatSubject(records: NotificationRecord[]): string {
+  if (records.length === 1) return recordSubject(records[0]!);
+  const counts = [
+    ["完成", records.filter((record) => record.kind === "completed").length],
+    ["失败", records.filter((record) => record.kind === "failed").length],
+    ["待批准", records.filter((record) => record.kind === "permission").length],
+  ] as const;
+  const parts = counts.filter(([, count]) => count > 0).map(([label, count]) => `${count} ${label}`);
+  return `📬 ${records.length} 条通知 · ${parts.join("、")}`;
+}
+
 export function formatMerged(records: NotificationRecord[]): string {
   if (records.length === 0) return "";
   const lines: string[] = [];

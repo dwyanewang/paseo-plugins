@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { sendStartupNotice, STARTUP_TEXT } from "../server/startup";
+import { STARTUP_TEXT } from "../server/notices";
+import { sendStartupNotice } from "../server/startup";
 
 describe("启动测试通知", () => {
   it("发送一条连接通知且不记失败日志", async () => {
@@ -7,6 +8,7 @@ describe("启动测试通知", () => {
     const logs: string[] = [];
     const ok = await sendStartupNotice(
       { send: async (message) => (sent.push(message.summary), "message-id") },
+      "host-1",
       (message) => logs.push(message),
     );
     expect(ok).toBe(true);
@@ -16,7 +18,7 @@ describe("启动测试通知", () => {
 
   it("未送达时记日志", async () => {
     const logs: string[] = [];
-    const ok = await sendStartupNotice({ send: async () => null }, (message) => logs.push(message));
+    const ok = await sendStartupNotice({ send: async () => null }, "host-1", (message) => logs.push(message));
     expect(ok).toBe(false);
     expect(logs).toEqual(["启动测试邮件未送达，邮件通知当前不可用"]);
   });
@@ -29,6 +31,7 @@ describe("启动测试通知", () => {
           throw new Error("secrets unavailable");
         },
       },
+      "host-1",
       (message, details) => logs.push({ message, details }),
     );
     expect(ok).toBe(false);
