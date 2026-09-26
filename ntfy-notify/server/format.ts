@@ -1,0 +1,169 @@
+import { formatFiles } from "./details";
+import type { NotificationRecord, NotificationWorkspace } from "./types";
+
+const PROVIDER_NAMES: Record<string, string> = {
+  claude: "Claude",
+  codex: "Codex",
+  opencode: "OpenCode",
+};
+
+export function providerName(provider: string): string {
+  return PROVIDER_NAMES[provider.toLowerCase()] ?? provider;
+}
+
+export function durationLabel(durationMs: number): string {
+  if (durationMs < 60_000) return `${Math.max(1, Math.round(durationMs / 1_000))} 秒`;
+  const minutes = Math.floor(durationMs / 60_000);
+  if (minutes < 60) return `${minutes} 分钟`;
+  return `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟`;
+}
+
+export function firstErrorLine(message: string): string {
+  const line = message.split(/\r?\n/, 1)[0]?.trim() || "未知错误";
+  return line.length <= 60 ? line : `${line.slice(0, 59)}…`;
+}
+
+export function workspaceLabel(workspace: NotificationWorkspace | null): { project: string; branch: string } {
+  if (!workspace) return { project: "未知项目", branch: "未知分支" };
+  return {
+    project: workspace.projectDisplayName,
+    branch: workspace.projectKind === "git" ? workspace.branch ?? workspace.name : workspace.name,
+  };
+}
+
+// A turn that began before the plugin loaded has no known start; its duration is left out.
+function durationSuffix(record: NotificationRecord): string {
+  return record.durationMs === undefined ? "" : ` · ${durationLabel(record.durationMs)}`;
+}
+
+export function formatRecord(record: NotificationRecord): string {
+  const { project, branch } = workspaceLabel(record.workspace);
+  const provider = providerName(record.provider);
+  if (record.kind === "permission") {
+    return `⏸ ${project} · ${branch} · 等待批准：${record.toolName ?? "未知工具"}`;
+  }
+  if (record.kind === "failed") {
+    const suffix = record.errorFirstLine ? `\n   ${record.errorFirstLine}` : "";
+    return `❌ ${project} · ${branch} · ${provider} 失败${durationSuffix(record)}${suffix}`;
+  }
+  const running = record.runningRootCount ?? 0;
+  const status = running > 0 ? `本分支还有 ${running} 个在跑` : "本分支已全部结束";
+  return `✅ ${project} · ${branch} · ${provider} 完成${durationSuffix(record)} · ${status}`;
+}
+
+// A collapsed phone notification shows one line of title, so it leads with the outcome and keeps
+// the task label short.
+// Measured in display width: a Chinese character counts 2, ASCII 1, so both scripts get the same room.
+const SUBJECT_LABEL_WIDTH = 20;
+
+function charWidth(char: string): number {
+  return char.charCodeAt(0) < 0x80 ? 1 : 2;
+}
+
+function subjectLabel(record: NotificationRecord): string {
+  const label = record.agentTitle?.trim() || workspaceLabel(record.workspace).project;
+  const chars = [...label];
+  if (chars.reduce((width, char) => width + charWidth(char), 0) <= SUBJECT_LABEL_WIDTH) return label;
+  let width = 0;
+  let kept = "";
+  for (const char of chars) {
+    // Leave room for the ellipsis.
+    if (width + charWidth(char) > SUBJECT_LABEL_WIDTH - 1) break;
+    width += charWidth(char);
+    kept += char;
+  }
+  return `${kept}…`;
+}
+
+function recordSubject(record: NotificationRecord): string {
+  const label = subjectLabel(record);
+  if (record.kind === "permission") return `⏸ 待批准 · ${label}`;
+  const outcome = record.kind === "failed" ? "❌ 失败" : "✅ 完成";
+  return `${outcome} · ${label}${durationSuffix(record)}`;
+}
+
+export function formatSubject(records: NotificationRecord[]): string {
+  if (records.length === 1) return recordSubject(records[0]!);
+  const counts = [
+    ["完成", records.filter((record) => record.kind === "completed").length],
+    ["失败", records.filter((record) => record.kind === "failed").length],
+    ["待批准", records.filter((record) => record.kind === "permission").length],
+  ] as const;
+  const parts = counts.filter(([, count]) => count > 0).map(([label, count]) => `${count} ${label}`);
+  return `📬 ${records.length} 条通知 · ${parts.join("、")}`;
+}
+
+// Failures and pending approvals pop over with a long vibration; completions use the default sound.
+export function formatPriority(records: NotificationRecord[]): number {
+  return records.some((record) => record.kind !== "completed") ? 4 : 3;
+}
+
+export function formatMerged(records: NotificationRecord[]): string {
+  if (records.length === 0) return "";
+  const lines: string[] = [];
+  const grouped = new Map<string, NotificationRecord[]>();
+  for (const record of records) {
+    if (record.kind !== "completed") {
+      lines.push(formatRecord(record));
+      continue;
+    }
+    const key = record.workspaceId ?? record.workspace?.id ?? record.agentId;
+    const group = grouped.get(key) ?? [];
+    group.push(record);
+    grouped.set(key, group);
+  }
+  for (const completed of grouped.values()) {
+    if (completed.length === 1) {
+      lines.push(formatRecord(completed[0]!));
+    } else {
+      const { project, branch } = workspaceLabel(completed[0]?.workspace ?? null);
+      lines.push(`✅ ${project} · ${branch} · ${completed.length} 个完成`);
+    }
+  }
+  return lines.join("\n");
+}
+
+function section(title: string, body: string | null | undefined): string[] {
+  return body ? ["", `【${title}】`, body] : [];
+}
+
+function formatDetail(record: NotificationRecord): string {
+  const lines = [formatRecord(record).split("\n", 1)[0]!];
+  if (record.agentTitle) lines.push(`Agent：${record.agentTitle}`);
+  const diffStat = record.workspace?.diffStat;
+  if (diffStat && (diffStat.additions > 0 || diffStat.deletions > 0)) {
+    lines.push(`工作区未提交改动：+${diffStat.additions} −${diffStat.deletions}`);
+  }
+  if (record.permission) {
+    const { title, body } = record.permission;
+    lines.push(...section("待批准", [title, body].filter(Boolean).join("\n") || record.toolName));
+  }
+  lines.push(...section("错误", record.error));
+  const turn = record.turn;
+  if (turn) {
+    lines.push(...section("你的指令", turn.prompt));
+    lines.push(...section("Agent 回复", turn.reply));
+    const work: string[] = [];
+    if (turn.files.length > 0) work.push(`修改了 ${turn.files.length} 个文件：\n${formatFiles(turn.files, record.cwd ?? null)}`);
+    if (turn.commandCount > 0 || turn.failedToolCount > 0) {
+      work.push(
+        `执行命令 ${turn.commandCount} 条${turn.failedToolCount > 0 ? `，失败的工具调用 ${turn.failedToolCount} 次` : ""}`,
+      );
+    }
+    if (turn.todo && turn.todo.length > 0) {
+      const done = turn.todo.filter((item) => item.completed).length;
+      work.push(
+        [`任务清单 ${done}/${turn.todo.length}：`, ...turn.todo.map((item) => `  ${item.completed ? "✓" : "○"} ${item.text}`)].join(
+          "\n",
+        ),
+      );
+    }
+    lines.push(...section("本轮操作", work.join("\n") || null));
+  }
+  return lines.join("\n");
+}
+
+// The body repeats each record's summary line so a single notification reads well on its own.
+export function formatBody(records: NotificationRecord[]): string {
+  return records.map(formatDetail).join("\n\n━━━━━━━━━━\n\n");
+}
