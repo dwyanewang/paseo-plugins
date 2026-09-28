@@ -7,11 +7,19 @@ import type { TodoFileRef, TodoImageRef, WorkItem } from "../shared/schema";
 import type { ExecuteSubmit } from "./execute-form";
 import { useTodoImageStore } from "./images";
 import { executeWorkItem, type ExecuteResult } from "./launch";
-import type { LaunchCapability } from "./launch-guard";
+import type { LaunchCapability, WithdrawPendingMessage } from "./launch-guard";
 import { runWorkItemNow } from "./run";
 import type { TodoActions } from "./use-todo-actions";
 
 type PaseoApi = ReturnType<typeof usePaseo>;
+
+/** The first message as the host shows it until the daemon records it. */
+interface PendingAgentMessage {
+  clientMessageId: string;
+  text: string;
+  images?: { data: string; mimeType: string }[];
+  attachments?: (HostFile & { type: "uploaded_file" })[];
+}
 
 /** Who started it, for the attempt record: device kind and host, as every client reports it. */
 export function initiatorLabel(platform: string, hostLabel: string): string {
@@ -26,8 +34,13 @@ export interface LaunchContext {
   reload: () => Promise<void>;
   initiatorLabel: string;
   capability: LaunchCapability;
-  /** Opens the agent a direct run created; absent on hosts without navigation. */
-  openAgent?: ((input: { agentId: string }) => void) | undefined;
+  /**
+   * Opens the agent a direct run created; absent on hosts without navigation. Hosts that know
+   * `pendingMessage` show the first prompt at once; older ones ignore it.
+   */
+  openAgent?: ((input: { agentId: string; pendingMessage?: PendingAgentMessage }) => void) | undefined;
+  /** Withdraws that first prompt when the run fails after the agent opened. */
+  withdrawPendingMessage?: WithdrawPendingMessage | undefined;
 }
 
 /**
@@ -45,6 +58,7 @@ export function useLaunchWorkItem(context: LaunchContext): {
   const { paseo, actions, incarnationId, reload, capability } = context;
   const label = context.initiatorLabel;
   const openAgent = context.openAgent;
+  const withdrawPendingMessage = context.withdrawPendingMessage;
   const imageStore = useTodoImageStore();
   const stage = useRpc(stageImages);
   const locate = useRpc(resolveFiles);
@@ -143,12 +157,23 @@ export function useLaunchWorkItem(context: LaunchContext): {
       if (input.mode === "run") {
         // The agent's tab appears once the host has created it, and its first turn can take a
         // while to start after that. Hand over to the agent then; the run records the rest behind.
-        let opened = false;
-        const open = (agentId: string) => {
+        // The daemon records the prompt only when that turn starts, so the host shows it until then.
+        let opened: { agentId: string; clientMessageId: string } | null = null;
+        const open = (agentId: string, clientMessageId: string) => {
           if (opened) return;
-          opened = true;
+          opened = { agentId, clientMessageId };
           toast.show("Agent started.", { variant: "success" });
-          openAgent?.({ agentId });
+          // Images as thumbnails, and the card's files as pills; their staged copies would repeat
+          // the thumbnails.
+          openAgent?.({
+            agentId,
+            pendingMessage: {
+              clientMessageId,
+              text: input.seedPrompt,
+              ...(images.length > 0 ? { images } : {}),
+              ...(attached.length > 0 ? { attachments: attached.map((file) => ({ type: "uploaded_file" as const, ...file })) } : {}),
+            },
+          });
         };
         let signalReady!: () => void;
         const ready = new Promise<true>((resolve) => {
@@ -161,13 +186,16 @@ export function useLaunchWorkItem(context: LaunchContext): {
           config: input.config,
           ...(images.length > 0 ? { images } : {}),
           ...(hostFiles.length > 0 ? { files: hostFiles } : {}),
-          onAgentReady: ({ agentId }) => {
-            open(agentId);
+          onAgentReady: ({ agentId, clientMessageId }) => {
+            open(agentId, clientMessageId);
             signalReady();
           },
         }).then(async (result) => {
           await reload();
           if (result.status === "error") {
+            // The run failed after the agent opened, so its first prompt may never be recorded.
+            // Withdraw it rather than leave the agent reading as busy; a late one still shows.
+            if (opened) withdrawPendingMessage?.(opened);
             toast.error(
               result.certainty === "claim_unknown"
                 ? `${result.message} Nothing was started. Reload, then check the item before trying again.`
@@ -175,7 +203,7 @@ export function useLaunchWorkItem(context: LaunchContext): {
             );
             return false;
           }
-          open(result.agentId);
+          open(result.agentId, result.attempt.clientMessageId);
           return true;
         });
         return Promise.race([ready, finished]);
@@ -202,7 +230,7 @@ export function useLaunchWorkItem(context: LaunchContext): {
       }
       return describeResult(result);
     },
-    [actions, capability, describeResult, incarnationId, label, openAgent, paseo, prepareFiles, prepareImages, reload, toast],
+    [actions, capability, describeResult, incarnationId, label, openAgent, paseo, prepareFiles, prepareImages, reload, toast, withdrawPendingMessage],
   );
 
   return { launch, describeResult };

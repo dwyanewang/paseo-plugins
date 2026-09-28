@@ -29,7 +29,7 @@ import { ExecuteBox, type ExecuteSubmit } from "./execute-box";
 import { persistCardImages, useTodoImageStore } from "./images";
 import { sendFollowUp } from "./follow-up";
 import { openForAttempt } from "./launch";
-import { resolveLaunchCapability } from "./launch-guard";
+import { resolveLaunchCapability, resolvePendingMessageWithdrawal } from "./launch-guard";
 import { MoveMenu } from "./move-menu";
 import { usePendingNewItem } from "./pending-new";
 import { useProjectCache } from "./projects";
@@ -155,6 +155,7 @@ function TodoReady(props: {
     initiatorLabel: initiatorLabel(props.platform, props.host.label),
     capability,
     openAgent: props.navigation?.openAgent,
+    withdrawPendingMessage: resolvePendingMessageWithdrawal(props.navigation),
   });
   const status = useRpc(documentStatus);
   const health = useQuery({ queryKey: ["todo", "status", props.host.id], queryFn: () => status({}), refetchInterval: 60_000 });
