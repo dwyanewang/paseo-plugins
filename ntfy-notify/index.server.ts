@@ -6,7 +6,7 @@ import { hasToken, readConfig, readCredentials, writeConfig } from "./server/con
 import { NotificationEngine } from "./server/engine";
 import { createNtfySender } from "./server/sender";
 import { LIVE_RECHECK_MS } from "./server/constants";
-import { isWatching, type PresenceLike } from "./server/presence";
+import { describeClients, isWatching, type PresenceLike } from "./server/presence";
 import { testMessage } from "./server/notices";
 import { sendStartupNotice } from "./server/startup";
 import type { AgentEntry, NotificationWorkspace, RuntimeInspection } from "./server/types";
@@ -105,7 +105,17 @@ export default function contribute(server: PluginServerContext) {
   const engine = new NotificationEngine({
     sender,
     inspect: (agent) => inspect(server.paseo, agent),
-    ...(presence ? { isUserPresent: async () => isWatching(await presence(), Date.now()) } : {}),
+    ...(presence
+      ? {
+          isUserPresent: async () => {
+            const snapshot = await presence();
+            const nowMs = Date.now();
+            const watching = isWatching(snapshot, nowMs);
+            if (!watching) log("没有正在使用的 Paseo App，照常发送", { clients: describeClients(snapshot, nowMs) });
+            return watching;
+          },
+        }
+      : {}),
     log,
   });
   let stopWatching: (() => Promise<void>) | null = null;
