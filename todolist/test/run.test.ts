@@ -26,7 +26,7 @@ function setup(thinkingOptionId?: string) {
     rpcs: { acquire, progress, abandon },
     onChange: vi.fn(),
   };
-  return { input, create, refresh, ref, acquire, progress, abandon, createWorkspace };
+  return { document, input, create, refresh, ref, acquire, progress, abandon, createWorkspace };
 }
 
 describe("direct execution", () => {
@@ -65,7 +65,7 @@ describe("direct execution", () => {
   });
 
   it("reports the agent once as soon as the host has created it, before its first turn starts", async () => {
-    const { input, create } = setup();
+    const { document, input, create } = setup();
     const events: string[] = [];
     create.mockImplementation(async (options: { onEvent?: (snapshot: unknown) => void }) => {
       options.onEvent?.({ phase: "accepted", agentId: "agent-1" });
@@ -76,7 +76,12 @@ describe("direct execution", () => {
     });
     const onAgentReady = vi.fn(() => events.push("ready"));
     await expect(runWorkItemNow({ ...input, onAgentReady })).resolves.toMatchObject({ status: "started" });
-    expect(onAgentReady).toHaveBeenCalledExactlyOnceWith({ agentId: "agent-1", workspaceId: "selected-workspace" });
+    expect(onAgentReady).toHaveBeenCalledExactlyOnceWith({
+      agentId: "agent-1",
+      workspaceId: "selected-workspace",
+      // The host shows the first prompt under this id until the daemon records it.
+      clientMessageId: document.attempts["att-1"].clientMessageId,
+    });
     expect(events).toEqual(["ready", "turn started"]);
   });
 

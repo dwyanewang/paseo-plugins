@@ -53,7 +53,7 @@ export interface RunInput {
    * Called once, as soon as the host reports the agent exists. Its first turn can take a while to
    * start after that, and the run only returns then. Hosts without creation events never call it.
    */
-  onAgentReady?: (agent: { agentId: string; workspaceId: string }) => void;
+  onAgentReady?: (agent: { agentId: string; workspaceId: string; clientMessageId: string }) => void;
 }
 
 /** Creation phases in which the agent exists and has not failed. */
@@ -248,7 +248,7 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
               const readyId = snapshot.agent?.id ?? snapshot.agentId;
               if (readyReported || !readyId || !AGENT_READY_PHASES.has(snapshot.phase)) return;
               readyReported = true;
-              onAgentReady({ agentId: readyId, workspaceId });
+              onAgentReady({ agentId: readyId, workspaceId, clientMessageId: attempt.clientMessageId });
             },
           }
         : {}),

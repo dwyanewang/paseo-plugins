@@ -13,7 +13,7 @@ import { openExecuteOverlay } from "./overlay-entries";
 import { TextAction } from "./overlay-parts";
 import { persistCardImages, useTodoImageStore } from "./images";
 import { resolveDraftIdentity, type DraftIdentity } from "./identity";
-import { resolveLaunchCapability } from "./launch-guard";
+import { resolveLaunchCapability, resolvePendingMessageWithdrawal } from "./launch-guard";
 import { useProjectCache } from "./projects";
 import { useSidebarBadge } from "./sidebar-badge";
 import { buildPanelContents, needsYou, summarizeProject } from "./summary";
@@ -156,6 +156,7 @@ export function TodoHeaderPanel(props: PluginButtonContentProps) {
     initiatorLabel: initiatorLabel(props.layout.platform, props.host.label),
     capability,
     openAgent: props.navigation?.openAgent,
+    withdrawPendingMessage: resolvePendingMessageWithdrawal(props.navigation),
   });
   const contents = useMemo(
     () => buildPanelContents(views.values(), project?.projectId ?? null),

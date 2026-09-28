@@ -21,3 +21,14 @@ export function resolveLaunchCapability(navigation: Navigation | undefined): Lau
 
 export const LAUNCH_UPGRADE_NOTICE =
   "This Paseo app cannot hand a Todo launch to the native composer. Todo starts the agent itself instead; update the app to get the composer option back.";
+
+export type WithdrawPendingMessage = (input: { agentId: string; clientMessageId: string }) => void;
+
+/**
+ * The host call that withdraws a first message `openAgent` showed, for a run that then failed.
+ * Hosts that cannot show one don't have it either.
+ */
+export function resolvePendingMessageWithdrawal(navigation: Navigation | undefined): WithdrawPendingMessage | undefined {
+  const withdraw = (navigation as { withdrawPendingAgentMessage?: unknown } | undefined)?.withdrawPendingAgentMessage;
+  return typeof withdraw === "function" ? (withdraw as WithdrawPendingMessage) : undefined;
+}

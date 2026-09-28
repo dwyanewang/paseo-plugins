@@ -7,7 +7,7 @@ import { useTodoDocument, useWorkItemViews } from "./data";
 import { ExecuteBox } from "./execute-box";
 import { resolveDraftIdentity, type DraftIdentity } from "./identity";
 import { persistCardImages, useTodoImageStore } from "./images";
-import { resolveLaunchCapability } from "./launch-guard";
+import { resolveLaunchCapability, resolvePendingMessageWithdrawal } from "./launch-guard";
 import { OverlayInsets } from "./overlay";
 import { useProjectCache } from "./projects";
 import { useTodoStyles } from "./styles";
@@ -40,6 +40,7 @@ function useDetachedTodo(props: PluginOverlayProps) {
     initiatorLabel: initiatorLabel(props.layout.platform, props.host.label),
     capability,
     openAgent: props.navigation?.openAgent,
+    withdrawPendingMessage: resolvePendingMessageWithdrawal(props.navigation),
   });
   // Without its data the box cannot do anything, and nothing behind it would say why.
   const toast = useToast();
