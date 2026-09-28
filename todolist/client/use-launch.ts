@@ -141,26 +141,44 @@ export function useLaunchWorkItem(context: LaunchContext): {
       }
       const hostFiles = [...files, ...attached];
       if (input.mode === "run") {
-        const result = await runWorkItemNow({
+        // The agent's tab appears once the host has created it, and its first turn can take a
+        // while to start after that. Hand over to the agent then; the run records the rest behind.
+        let opened = false;
+        const open = (agentId: string) => {
+          if (opened) return;
+          opened = true;
+          toast.show("Agent started.", { variant: "success" });
+          openAgent?.({ agentId });
+        };
+        let signalReady!: () => void;
+        const ready = new Promise<true>((resolve) => {
+          signalReady = () => resolve(true);
+        });
+        const finished = runWorkItemNow({
           ...shared,
           paseo,
           target: input.target,
           config: input.config,
           ...(images.length > 0 ? { images } : {}),
           ...(hostFiles.length > 0 ? { files: hostFiles } : {}),
+          onAgentReady: ({ agentId }) => {
+            open(agentId);
+            signalReady();
+          },
+        }).then(async (result) => {
+          await reload();
+          if (result.status === "error") {
+            toast.error(
+              result.certainty === "claim_unknown"
+                ? `${result.message} Nothing was started. Reload, then check the item before trying again.`
+                : result.message,
+            );
+            return false;
+          }
+          open(result.agentId);
+          return true;
         });
-        await reload();
-        if (result.status === "error") {
-          toast.error(
-            result.certainty === "claim_unknown"
-              ? `${result.message} Nothing was started. Reload, then check the item before trying again.`
-              : result.message,
-          );
-          return false;
-        }
-        toast.show("Agent started.", { variant: "success" });
-        openAgent?.({ agentId: result.agentId });
-        return true;
+        return Promise.race([ready, finished]);
       }
       if (!capability.available) return false;
       if (target.images.length > 0 && files.length === 0) {

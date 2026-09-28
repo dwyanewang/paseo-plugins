@@ -49,7 +49,15 @@ export interface RunInput {
   files?: HostFile[];
   rpcs: LaunchRpcs;
   onChange: () => void;
+  /**
+   * Called once, as soon as the host reports the agent exists. Its first turn can take a while to
+   * start after that, and the run only returns then. Hosts without creation events never call it.
+   */
+  onAgentReady?: (agent: { agentId: string; workspaceId: string }) => void;
 }
+
+/** Creation phases in which the agent exists and has not failed. */
+const AGENT_READY_PHASES: ReadonlySet<string> = new Set(["agent_ready", "prompt_started", "completed"]);
 
 export type RunResult =
   | { status: "started"; attempt: Attempt; agentId: string; workspaceId: string }
@@ -230,8 +238,20 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
   }
 
   let agentId: string;
+  let readyReported = false;
+  const onAgentReady = input.onAgentReady;
   try {
     const agent = await workspace.agents.create({
+      ...(onAgentReady
+        ? {
+            onEvent: (snapshot) => {
+              const readyId = snapshot.agent?.id ?? snapshot.agentId;
+              if (readyReported || !readyId || !AGENT_READY_PHASES.has(snapshot.phase)) return;
+              readyReported = true;
+              onAgentReady({ agentId: readyId, workspaceId });
+            },
+          }
+        : {}),
       config: {
         provider: input.config.providerModel,
         ...(input.config.modeId ? { modeId: input.config.modeId } : {}),

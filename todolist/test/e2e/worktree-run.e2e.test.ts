@@ -55,6 +55,8 @@ test("a direct run can cut a new worktree and start its agent there", async () =
     const item = (await readDocument()).workItems[content.id]!;
 
     const paseo = createPaseoApi(client as never) as unknown as RunInput["paseo"];
+    const ready: { agentId: string; workspaceId: string; beforeReturn: boolean }[] = [];
+    let returned = false;
     const result = await runWorkItemNow({
       paseo,
       item,
@@ -70,9 +72,13 @@ test("a direct run can cut a new worktree and start its agent there", async () =
         abandon: (input) => rpc(abandonLaunch.name, input),
       },
       onChange: () => undefined,
+      onAgentReady: (agent) => ready.push({ ...agent, beforeReturn: !returned }),
     });
+    returned = true;
     expect(result).toMatchObject({ status: "started" });
     if (result.status !== "started") return;
+    // The host reports the agent before the run returns, so the dialog can hand over early.
+    expect(ready).toEqual([{ agentId: result.agentId, workspaceId: result.workspaceId, beforeReturn: true }]);
 
     const branches = execFileSync("git", ["branch", "--list", "todo-1-cut-a-worktree-e2e1"], { cwd: repo }).toString();
     expect(branches).toContain("todo-1-cut-a-worktree-e2e1");
