@@ -64,6 +64,36 @@ describe("direct execution", () => {
     expect(create.mock.calls[0][0].attachments).toEqual([{ type: "uploaded_file", ...file }]);
   });
 
+  it("reports the agent once as soon as the host has created it, before its first turn starts", async () => {
+    const { input, create } = setup();
+    const events: string[] = [];
+    create.mockImplementation(async (options: { onEvent?: (snapshot: unknown) => void }) => {
+      options.onEvent?.({ phase: "accepted", agentId: "agent-1" });
+      options.onEvent?.({ phase: "agent_ready", agentId: "agent-1", agent: { id: "agent-1" } });
+      options.onEvent?.({ phase: "prompt_started", agentId: "agent-1", agent: { id: "agent-1" } });
+      events.push("turn started");
+      return { id: "agent-1" };
+    });
+    const onAgentReady = vi.fn(() => events.push("ready"));
+    await expect(runWorkItemNow({ ...input, onAgentReady })).resolves.toMatchObject({ status: "started" });
+    expect(onAgentReady).toHaveBeenCalledExactlyOnceWith({ agentId: "agent-1", workspaceId: "selected-workspace" });
+    expect(events).toEqual(["ready", "turn started"]);
+  });
+
+  it("does not report a failed creation as ready, and asks for no events without a listener", async () => {
+    const failed = setup();
+    failed.create.mockImplementation(async (options: { onEvent?: (snapshot: unknown) => void }) => {
+      options.onEvent?.({ phase: "failed", agentId: "agent-1", agent: { id: "agent-1" } });
+      throw new Error("run did not start");
+    });
+    const onAgentReady = vi.fn();
+    await expect(runWorkItemNow({ ...failed.input, onAgentReady })).resolves.toMatchObject({ status: "error", certainty: "outcome_unknown" });
+    expect(onAgentReady).not.toHaveBeenCalled();
+    const quiet = setup();
+    await runWorkItemNow(quiet.input);
+    expect(quiet.create.mock.calls[0][0]).not.toHaveProperty("onEvent");
+  });
+
   it("stops before the host when the claim request never gets a reply", async () => {
     const { input, acquire, create, abandon } = setup();
     acquire.mockRejectedValue(new Error("connection lost"));
