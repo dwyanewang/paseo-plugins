@@ -33,6 +33,8 @@ export type ExecuteSubmit =
 
 export interface ExecuteFormInput {
   item: WorkItem;
+  /** Starts the prompt from this text instead of the card's own; it still counts as an edit. */
+  initialPrompt?: string | undefined;
   /** The item's project: only git projects offer a new worktree, which is cut from its root. */
   project: ProjectRecord | undefined;
   defaultWorkspaceId: string | null;
@@ -57,7 +59,7 @@ export function useExecuteForm(input: ExecuteFormInput) {
   const images = useMemo(() => imageStore.resolve(item.images), [item, imageStore]);
   const catalog = useAgentConfigCatalog(paseo, true);
   const [initialSeedPrompt] = useState(() => deriveSeedPrompt(item));
-  const [seedPrompt, setSeedPrompt] = useState(initialSeedPrompt);
+  const [seedPrompt, setSeedPrompt] = useState(input.initialPrompt ?? initialSeedPrompt);
   const [updateDefault, setUpdateDefault] = useState(false);
   const [mode, setMode] = useState<LaunchMode | null>(null);
   const [target, setTarget] = useState<string | null>(null);

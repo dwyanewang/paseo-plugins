@@ -30,7 +30,8 @@ interface ContinueProps {
   onClose: () => void;
   onMoveOnly: (view: WorkItemView) => void;
   onOpenAgent: ((view: WorkItemView, agentId: string) => void) | null;
-  onExecuteInstead: (view: WorkItemView) => void;
+  /** `text`: the message typed so far, which the new run starts from when it is not blank. */
+  onExecuteInstead: (view: WorkItemView, text: string) => void;
   onSend: (input: { view: WorkItemView; agentId: string; text: string; messageId: string }) => Promise<FollowUpResult | null>;
   onCheck: (view: WorkItemView) => Promise<void>;
 }
@@ -114,6 +115,7 @@ function ContinueBody(props: ContinueProps & { request: StartRequest; view: Work
   }
 
   const sendLabel = sending ? "Sending…" : request.move ? "Send and move" : "Send";
+  const runLabel = text.trim() ? "Start a new run with this message instead" : "Start a new run instead";
   return (
     <OverlayBox
       size="narrow"
@@ -200,7 +202,7 @@ function ContinueBody(props: ContinueProps & { request: StartRequest; view: Work
         ) : (
           <>
             {request.move ? <TextAction theme={theme} label="Move only" kind="ghost" disabled={sending} onPress={() => props.onMoveOnly(view)} /> : null}
-            <IconAction theme={theme} icon="Play" label="Start a new run instead" tip="Start a new run instead" kind="outline" disabled={sending} onPress={() => props.onExecuteInstead(view)} />
+            <IconAction theme={theme} icon="Play" label={runLabel} tip={runLabel} kind="outline" disabled={sending} onPress={() => props.onExecuteInstead(view, text)} />
             <IconAction theme={theme} icon="Send" label={sendLabel} tip={sendLabel} keys={KEYS.submit} kind="round" disabled={sending || Boolean(invalid) || !stillIdle} onPress={() => void send()} />
           </>
         )}

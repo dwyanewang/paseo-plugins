@@ -22,6 +22,8 @@ interface ExecuteBoxProps {
   styles: TodoStyles;
   theme: PluginTheme;
   item: WorkItem | null;
+  /** Starts the prompt from this text instead of the card's own prompt. */
+  initialPrompt?: string | undefined;
   /** The item's project: only git projects offer a new worktree, which is cut from its root. */
   project: ProjectRecord | undefined;
   defaultWorkspaceId: string | null;
@@ -50,6 +52,7 @@ function ExecuteBody(props: ExecuteBoxProps & { item: WorkItem }) {
   const inputRef = useRef<TextInput | null>(null);
   const form = useExecuteForm({
     item,
+    initialPrompt: props.initialPrompt,
     project: props.project,
     defaultWorkspaceId: props.defaultWorkspaceId,
     canOpenComposer: props.canOpenComposer,
