@@ -171,7 +171,8 @@ function TodoReady(props: {
   const [editor, setEditor] = useState<{ open: boolean; status: StartingStatus }>({ open: false, status: "todo" });
   const [pick, setPick] = useState<PickRequest | null>(null);
   // `moveOnSubmit`: opened by moving the card into In progress, which happens once the user confirms.
-  const [execute, setExecute] = useState<{ view: WorkItemView; retryAnyway: boolean; moveOnSubmit?: boolean } | null>(null);
+  // `prompt`: a message carried over from the continue box, which replaces the card's prompt.
+  const [execute, setExecute] = useState<{ view: WorkItemView; retryAnyway: boolean; moveOnSubmit?: boolean; prompt?: string } | null>(null);
   const [start, setStart] = useState<StartRequest | null>(null);
   const [confirm, setConfirm] = useState<{ title: string; message: string; label: string; requireDouble: boolean; icon?: string; run: () => Promise<unknown> } | null>(null);
   const [checking, setChecking] = useState<string | null>(null);
@@ -591,6 +592,7 @@ function TodoReady(props: {
         styles={styles}
         theme={theme}
         item={execute?.view.item ?? null}
+        initialPrompt={execute?.prompt}
         onClose={() => setExecute(null)}
         project={execute ? projectCache.projects.get(execute.view.item.projectId) : undefined}
         defaultWorkspaceId={props.defaultWorkspaceId}
@@ -626,10 +628,10 @@ function TodoReady(props: {
               }
             : null
         }
-        onExecuteInstead={(view) => {
+        onExecuteInstead={(view, text) => {
           const current = start;
           setStart(null);
-          setExecute({ view, retryAnyway: false, ...(current?.move ? { moveOnSubmit: true } : {}) });
+          setExecute({ view, retryAnyway: false, ...(current?.move ? { moveOnSubmit: true } : {}), ...(text.trim() ? { prompt: text } : {}) });
         }}
         onSend={async ({ view, agentId, text, messageId }) => {
           if (start?.move && view.item.status !== "in_progress") {
@@ -641,6 +643,8 @@ function TodoReady(props: {
           if (result.status === "sent") {
             setStart(null);
             toast.show("Message sent. The card follows the agent.", { variant: "success" });
+            // Follow the message to the agent, as a direct run does once its agent exists.
+            props.navigation?.openAgent({ agentId });
           }
           return result;
         }}
