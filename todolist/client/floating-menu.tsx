@@ -125,12 +125,37 @@ export function FloatingMenu(props: {
 }) {
   const { theme, placement } = props;
   const scroll = useRef<ScrollView | null>(null);
+  // Each row's place in the scrolled content, section heading included.
   const rows = useRef(new Map<number, { y: number; height: number }>());
   const view = useRef({ offset: 0, height: 0 });
+  // A highlight the pointer moved: the row is under it already, and scrolling to it would fight the wheel.
+  const hovered = useRef<number | null>(null);
+  const revealed = useRef(false);
   const dark = isDarkTheme(theme);
+
+  // The menu mounts per opening with the current choice highlighted: once every row is measured,
+  // that row is scrolled to the middle, so a choice further down is in view.
+  function reveal() {
+    if (revealed.current || !scroll.current || view.current.height === 0) return;
+    let end = 0;
+    for (let index = 0; index < props.items.length; index += 1) {
+      const row = rows.current.get(index);
+      if (!row) return;
+      end = Math.max(end, row.y + row.height);
+    }
+    revealed.current = true;
+    const row = rows.current.get(props.highlight);
+    const { height } = view.current;
+    if (!row || row.y + row.height <= height) return;
+    const y = Math.min(row.y - (height - row.height) / 2, end - height);
+    scroll.current.scrollTo({ y: Math.max(0, y), animated: false });
+  }
 
   // Keep the highlighted row in view as the arrows move it.
   useEffect(() => {
+    const pointed = hovered.current === props.highlight;
+    hovered.current = null;
+    if (pointed) return;
     const row = rows.current.get(props.highlight);
     if (!row || !scroll.current) return;
     const { offset, height } = view.current;
@@ -197,6 +222,7 @@ export function FloatingMenu(props: {
         scrollEventThrottle={16}
         onLayout={(event) => {
           view.current.height = event.nativeEvent.layout.height;
+          reveal();
         }}
         onScroll={(event) => {
           view.current.offset = event.nativeEvent.contentOffset.y;
@@ -206,7 +232,13 @@ export function FloatingMenu(props: {
           const heading = item.section && item.section !== section ? item.section : null;
           section = item.section;
           return (
-            <View key={item.key}>
+            <View
+              key={item.key}
+              onLayout={(event) => {
+                rows.current.set(index, { y: event.nativeEvent.layout.y, height: event.nativeEvent.layout.height });
+                reveal();
+              }}
+            >
               {heading ? (
                 <Text style={{ color: muted, fontSize: 11, fontWeight: "600", letterSpacing: 0.4, textTransform: "uppercase", paddingHorizontal: 9, paddingTop: 6, paddingBottom: 3 }}>
                   {heading}
@@ -218,8 +250,10 @@ export function FloatingMenu(props: {
                 accessibilityLabel={item.hint ? `${item.label}, ${item.hint}` : item.label}
                 // Focus stays in the text field, where the keys are read.
                 focusable={false}
-                onLayout={(event) => rows.current.set(index, { y: event.nativeEvent.layout.y, height: event.nativeEvent.layout.height })}
-                onHoverIn={() => props.onHighlight(index)}
+                onHoverIn={() => {
+                  hovered.current = index;
+                  props.onHighlight(index);
+                }}
                 onPress={() => props.onSelect(item.key)}
                 style={({ pressed }: { pressed: boolean }) => [
                   { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 9, paddingVertical: 7, borderRadius: 7 },
