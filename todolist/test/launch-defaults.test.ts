@@ -9,6 +9,7 @@ describe("launch preferences", () => {
       providerModel: "claude/opus",
       modeId: "auto",
       thinkingOptionId: "",
+      featuresByProvider: {},
       workspaceByProject: {},
       boardProjectId: "",
     });

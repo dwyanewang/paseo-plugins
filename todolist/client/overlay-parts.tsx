@@ -97,6 +97,49 @@ export function IconAction(props: {
   );
 }
 
+/** Boolean toolbar features toggle directly, like the host composer's icon-only controls. */
+export function IconToggle(props: {
+  theme: PluginTheme;
+  icon: string;
+  label: string;
+  value: boolean;
+  disabled?: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  const { theme } = props;
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const disabled = Boolean(props.disabled);
+  const tip = `${props.label}: ${props.value ? "On" : "Off"}`;
+  return (
+    <View style={{ flexShrink: 0 }}>
+      <Pressable
+        accessibilityRole="switch"
+        accessibilityLabel={props.label}
+        accessibilityHint={tip}
+        accessibilityState={{ checked: props.value, disabled }}
+        aria-checked={props.value}
+        disabled={disabled}
+        hitSlop={4}
+        onPress={() => props.onChange(!props.value)}
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        style={({ pressed }: { pressed: boolean }) => [
+          { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
+          !props.value && (hovered || pressed) && !disabled ? { backgroundColor: theme.colors.surface2 } : null,
+          disabled ? { opacity: 0.45 } : null,
+        ]}
+      >
+        {props.value ? <View pointerEvents="none" style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, borderRadius: 15, backgroundColor: theme.colors.statusSuccess, opacity: hovered && !disabled ? 0.16 : 0.08 }} /> : null}
+        <Icon name={props.icon} size={17} color={props.value ? theme.colors.statusSuccess : theme.colors.foregroundMuted} />
+      </Pressable>
+      {(hovered || focused) && !disabled ? <Tip theme={theme} label={tip} align="end" /> : null}
+    </View>
+  );
+}
+
 /**
  * A labelled button for boxes: rounded, and small next to text. "accent" is the main action where
  * two run-like actions sit side by side and icons alone would not tell them apart.

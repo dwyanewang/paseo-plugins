@@ -4,10 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { createId } from "../shared/ids";
 import { validateSeedPrompt } from "../shared/limits";
-import { todoPrefs, type LaunchMode } from "../shared/prefs";
+import { todoPrefs, type FeatureValues, type LaunchMode } from "../shared/prefs";
 import { deriveSeedPrompt } from "../shared/prompt";
 import type { WorkItem } from "../shared/schema";
 import { useAgentConfigCatalog, type ModelOption, type ModeOption } from "./agent-config";
+import { resolveAgentFeatures, useAgentFeatures } from "./agent-features";
 import { useTodoImageStore } from "./images";
 import type { LaunchTarget } from "./launch";
 import { NEW_WORKSPACE, NEW_WORKTREE, resolveChoice, resolveWorkspaceTarget, worktreeNameFor } from "./launch-defaults";
@@ -66,6 +67,7 @@ export function useExecuteForm(input: ExecuteFormInput) {
   const [model, setModelChoice] = useState<string | null>(null);
   const [modeId, setModeId] = useState<string | null>(null);
   const [thinkingOptionId, setThinkingOptionId] = useState<string | null>(null);
+  const [featuresByProvider, setFeaturesByProvider] = useState<Record<string, FeatureValues>>({});
   const [branchName, setBranchName] = useState("");
   const [baseBranch, setBaseBranch] = useState("");
   // Generated once per opening, so the placeholder name does not change while the box is open.
@@ -110,12 +112,27 @@ export function useExecuteForm(input: ExecuteFormInput) {
   const effectiveProvider = selectedModel?.provider ?? "";
   const thinkingOptions = selectedModel?.thinkingOptions ?? [];
   const effectiveThinkingOptionId = resolveChoice(thinkingOptions, thinkingOptionId, stored?.thinkingOptionId, selectedModel?.defaultThinkingOptionId);
+  const cwd = newWorktree
+    ? input.project?.projectRootPath
+    : workspaces.data?.find((workspace) => workspace.id === effectiveTarget)?.workspaceDirectory;
+  const featureDraft = useMemo(() => effectiveMode === "run" && effectiveModel && cwd ? {
+    provider: effectiveModel,
+    cwd,
+    ...(effectiveModeId ? { modeId: effectiveModeId } : {}),
+    ...(effectiveThinkingOptionId ? { thinkingOptionId: effectiveThinkingOptionId } : {}),
+  } : null, [effectiveMode, effectiveModel, cwd, effectiveModeId, effectiveThinkingOptionId]);
+  const featureQuery = useAgentFeatures(paseo, featureDraft);
+  const { features, values: featureValues } = resolveAgentFeatures(featureQuery.data ?? [], stored?.featuresByProvider[effectiveProvider], featuresByProvider[effectiveProvider]);
+  const featureError = featureQuery.isError ? featureQuery.error.message : null;
+  function setFeatureValue(id: string, value: boolean | string | null) {
+    setFeaturesByProvider((current) => ({ ...current, [effectiveProvider]: { ...current[effectiveProvider], [id]: value } }));
+  }
 
   const invalid = validateSeedPrompt(seedPrompt);
   const edited = seedPrompt !== initialSeedPrompt;
   const noWorkspace = effectiveMode === "run" && !workspaces.isPending && existing.length === 0 && !canCreateWorktree;
   const noModel = effectiveMode === "run" && catalog.status !== "loading" && catalog.models.length === 0;
-  const blocked = Boolean(invalid) || busy || prefs.status === "loading" || workspaces.isPending || !effectiveTarget || (effectiveMode === "run" && !effectiveModel);
+  const blocked = Boolean(invalid) || busy || prefs.status === "loading" || workspaces.isPending || !effectiveTarget || (effectiveMode === "run" && (!effectiveModel || featureQuery.isFetching || featureQuery.isError));
 
   /** A new model resets the choices that depend on it. */
   function setModel(value: string) {
@@ -150,6 +167,7 @@ export function useExecuteForm(input: ExecuteFormInput) {
                 providerModel: effectiveModel,
                 ...(effectiveModeId ? { modeId: effectiveModeId } : {}),
                 ...(effectiveThinkingOptionId ? { thinkingOptionId: effectiveThinkingOptionId } : {}),
+                ...(Object.keys(featureValues).length > 0 ? { featureValues } : {}),
               },
             }
           : {
@@ -164,13 +182,19 @@ export function useExecuteForm(input: ExecuteFormInput) {
           ...prefs.values,
           launchMode: effectiveMode,
           workspaceByProject: { ...prefs.values.workspaceByProject, [item.projectId]: effectiveTarget },
-          ...(effectiveMode === "run" ? { providerModel: effectiveModel, modeId: effectiveModeId, thinkingOptionId: effectiveThinkingOptionId } : {}),
+          ...(effectiveMode === "run" ? {
+            providerModel: effectiveModel,
+            modeId: effectiveModeId,
+            thinkingOptionId: effectiveThinkingOptionId,
+            featuresByProvider: { ...prefs.values.featuresByProvider, [effectiveProvider]: featureValues },
+          } : {}),
         };
         if (
           next.launchMode !== prefs.values.launchMode ||
           next.providerModel !== prefs.values.providerModel ||
           next.modeId !== prefs.values.modeId ||
           next.thinkingOptionId !== prefs.values.thinkingOptionId ||
+          JSON.stringify(next.featuresByProvider) !== JSON.stringify(prefs.values.featuresByProvider) ||
           effectiveTarget !== prefs.values.workspaceByProject[item.projectId]
         ) {
           const saved = await prefs.save(next, prefs.revision);
@@ -214,6 +238,10 @@ export function useExecuteForm(input: ExecuteFormInput) {
     thinkingOptions,
     effectiveThinkingOptionId,
     setThinkingOptionId,
+    features,
+    setFeatureValue,
+    featureError,
+    retryFeatures: () => void featureQuery.refetch(),
     invalid,
     noWorkspace,
     noModel,

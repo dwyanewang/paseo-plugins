@@ -23,7 +23,7 @@ needs:
 | `shared/images.ts` | Third settings document (`todo-images`, version 1): image bytes as base64, keyed by id, referenced from work items. Kept out of `todo-data` so image data never bloats its frequent writes or migrations. Client-written; pruned when the referencing card drops it or is purged. |
 | `shared/migrate.ts` | Stepwise migrations. 1 → 2: open items land in To do, In progress or In review by their agents, and numbers follow creation order. 2 → 3: manual ordering is dropped and every item gets an unset priority. |
 | `shared/board.ts` | Board rules: status and priority labels, card order, what each column's "+" does, and the automatic moves (`deriveAutoMove`). Moves never bump the content `version`. |
-| `shared/prefs.ts` | Second settings document (`todo-prefs`, version 1): launch mode, model, mode, thinking, and last-used workspace per project. Client-written; no business data. |
+| `shared/prefs.ts` | Second settings document (`todo-prefs`, version 1): launch mode, model, mode, thinking, features per provider, and last-used workspace per project. Client-written; no business data. |
 | `shared/contracts.ts` | Typed RPCs. Every mutation carries `expectedIncarnationId`; errors are stable codes. |
 | `shared/attempt.ts`, `shared/state.ts` | Field-level lattice joins for attempt facts; canonical state mirror and aggregation. |
 | `shared/limits.ts` | Field limits and frozen capacity tiers (see `test/benchmark/RESULTS.md`). |
@@ -35,7 +35,7 @@ needs:
 | `client/board*.tsx`, `client/card-panel.tsx`, `client/move-menu.tsx`, `client/card-picker.tsx` | Board view: project filter and status filter menus, search, full-height columns that scroll their own cards (side by side, scrolling sideways, or status tabs by width), cards, pointer drag between columns on wide layouts, the card menu (Edit, Move to), the card menu behind a column's "+", and the card panel: details and editing in one box, with status, priority and project (rebind) pills, the agent and every attempt. |
 | `client/work-item-editor.tsx`, `client/attachments.tsx`, `client/files.ts`, `client/image-preview.tsx` | The new-item form, in the New box and embedded at the top of the header panel (project fixed to the workspace's with no pill for it, a draft kept per project, cleared after each card), and the pieces the card panel edits with: text that grows up to a cap, attached images and files, and one tool row with "+" (a menu of Add images / Add files, as in the host composer), the project, column and priority pills and icon-only actions. A closed new-item box keeps its draft. Attachment drafts (choosers, paste, drop, file uploads) are shared with the header panel. A thumbnail anywhere opens the image full-window. |
 | `client/overlay-entries.tsx` | The new-item and execute boxes the host mounts with `openOverlay`, over whatever page is open: the execute box from the header panel (Run, Create & run), the new-item box from `/todo` or "New todo…" without text. |
-| `client/execute-form.ts`, `client/execute-box.tsx`, `client/execute-modal.tsx`, `client/select-row.tsx` | Starting a run: the shared form logic, the execute box (prompt on top, launch / workspace / model / mode / thinking pills), and the older host-dialog layout with its select rows, kept only for the header panel on hosts without `openOverlay`. |
+| `client/execute-form.ts`, `client/execute-box.tsx`, `client/execute-modal.tsx`, `client/select-row.tsx`, `client/agent-features.ts` | Starting a run: the shared form logic, the execute box (prompt on top, launch / workspace / model / mode / thinking / feature pills), and the older host-dialog layout with its select rows, kept only for the header panel on hosts without `openOverlay`. |
 | `server/image-files.ts` | `todo.images.stage`: writes card images to files on the daemon host for a launch. |
 | `server/card-files.ts` | `todo.files.write` and `todo.files.resolve`: attached files, uploaded in pieces to the daemon host, and found again at launch; unreferenced files are pruned after a week. |
 | `client/styles.ts`, `client/components.tsx` | Shared look: spacing and type scale, surfaces derived from the host theme (light or dark), and the buttons, chips, segmented filter, notices, fields and radio lists every screen uses. |
@@ -81,8 +81,13 @@ needs:
 - A new worktree gets a branch named after the card (`todo-<number>-<title>-<suffix>`, editable) from
   the project's default branch unless another base is given. Creating the worktree is a
   request-start: if it fails, the attempt is `outcome_unknown` and nothing is retried.
-- Direct execution offers the selected model's **Thinking** options, using the same provider
-  catalog as agent profiles. Successful launches remember the choices across clients and reloads.
+- Direct execution offers the selected model's **Thinking** options and the provider's features,
+  including OpenCode's **Auto-accept**, separately from Mode. Features are discovered for the selected
+  directory, model, mode and thinking level, and passed to agent creation as `featureValues`.
+  Boolean features use icon buttons that toggle on a press: green means on, gray means off,
+  and the tooltip names the feature and its state. Multi-value features keep their dropdowns.
+  Todo uses the provider's defaults until a choice is made; it does not enable Auto-accept on its own.
+  Successful launches remember the choices across clients and reloads, with features kept per provider.
   Each project remembers its own workspace; a saved workspace takes precedence over the current
   panel, and an unavailable workspace falls back to the current panel or an available target.
 - Each item has a board status: Backlog, To do, In progress, In review, Done or Cancelled. Manual

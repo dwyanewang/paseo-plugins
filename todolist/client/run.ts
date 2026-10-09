@@ -17,6 +17,7 @@ export interface RunAgentConfig {
   providerModel: string;
   modeId?: string;
   thinkingOptionId?: string;
+  featureValues?: Record<string, unknown>;
 }
 
 /** Where a direct run happens: an existing workspace, or a worktree created for this run. */
@@ -256,6 +257,7 @@ export async function runWorkItemNow(input: RunInput): Promise<RunResult> {
         provider: input.config.providerModel,
         ...(input.config.modeId ? { modeId: input.config.modeId } : {}),
         ...(input.config.thinkingOptionId ? { thinkingOptionId: input.config.thinkingOptionId } : {}),
+        ...(input.config.featureValues && Object.keys(input.config.featureValues).length > 0 ? { featureValues: input.config.featureValues } : {}),
       },
       title: input.item.title,
       prompt: input.seedPrompt,

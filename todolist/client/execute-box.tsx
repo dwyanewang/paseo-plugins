@@ -10,7 +10,7 @@ import { refToDraftFile } from "./files";
 import { NEW_WORKSPACE, NEW_WORKTREE } from "./launch-defaults";
 import { LAUNCH_UPGRADE_NOTICE } from "./launch-guard";
 import { MetaLine, Overlay, OverlayBox, useOverlay } from "./overlay";
-import { CheckOption, IconAction, InlineNote, KEYS, MetaText, TextAction } from "./overlay-parts";
+import { CheckOption, IconAction, IconToggle, InlineNote, KEYS, MetaText, TextAction } from "./overlay-parts";
 import type { ProjectRecord } from "./projects";
 import type { TodoStyles } from "./styles";
 import { TEXT } from "./text";
@@ -148,6 +148,7 @@ function ExecuteBody(props: ExecuteBoxProps & { item: WorkItem }) {
       {form.workspaces.isError ? <InlineNote theme={theme}>Could not list workspaces for this project.</InlineNote> : null}
       {form.noWorkspace ? <InlineNote theme={theme}>{props.canOpenComposer ? TEXT.noWorkspaceForRun : TEXT.noWorkspaceAtAll}</InlineNote> : null}
       {form.noModel ? <InlineNote theme={theme}>{form.catalog.error ?? TEXT.noProviderForRun}</InlineNote> : null}
+      {run && form.featureError ? <InlineNote theme={theme} trailing={<TextAction theme={theme} label="Retry" small onPress={form.retryFeatures} />}>{`Could not load agent features: ${form.featureError}`}</InlineNote> : null}
       {form.invalid ? <InlineNote theme={theme}>{form.invalid.reason === "empty" ? "Enter a prompt before launching." : "The prompt is too long."}</InlineNote> : null}
       {!run ? <InlineNote theme={theme} kind="info">{TEXT.composerModeHint}</InlineNote> : null}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10 }}>
@@ -218,7 +219,38 @@ function ExecuteBody(props: ExecuteBoxProps & { item: WorkItem }) {
               onClosed={refocus}
             />
           ) : null}
+          {run ? form.features.filter((feature) => feature.type === "select").map((feature) => (
+            <PillSelect
+              key={feature.id}
+              theme={theme}
+              label={feature.label}
+              icon={feature.icon ?? "SlidersHorizontal"}
+              text={`${feature.label}: ${feature.options.find((option) => option.id === feature.value)?.label ?? "Default"}`}
+              disabled={form.busy}
+              items={[
+                { key: "default", label: "Default", checked: feature.value === null },
+                ...feature.options.map((option) => ({ key: `option:${option.id}`, label: option.label, checked: feature.value === option.id })),
+              ]}
+              onSelect={(key) => form.setFeatureValue(feature.id, key === "default" ? null : key.slice("option:".length))}
+              onClosed={refocus}
+            />
+          )) : null}
         </PillStrip>
+        {/* Kept outside the scrolling strip so the state stays visible and tooltips are not clipped. */}
+        {run ? form.features.filter((feature) => feature.type === "toggle").map((feature) => (
+          <IconToggle
+            key={feature.id}
+            theme={theme}
+            icon={feature.icon ?? "SlidersHorizontal"}
+            label={feature.label}
+            value={feature.value}
+            disabled={form.busy}
+            onChange={(value) => {
+              form.setFeatureValue(feature.id, value);
+              refocus();
+            }}
+          />
+        )) : null}
         {props.onMoveOnly ? <TextAction theme={theme} label="Move only" kind="ghost" disabled={form.busy} onPress={props.onMoveOnly} /> : null}
         <IconAction
           theme={theme}

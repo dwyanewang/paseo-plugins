@@ -11,6 +11,9 @@ export const TODO_PREFS_SETTINGS_VERSION = 1;
 export const LaunchModeSchema = z.enum(["run", "composer"]);
 export type LaunchMode = z.infer<typeof LaunchModeSchema>;
 
+const FeatureValuesSchema = z.record(z.string(), z.union([z.boolean(), z.string(), z.null()]));
+export type FeatureValues = z.output<typeof FeatureValuesSchema>;
+
 export const TodoPrefsSchema = z.object({
   /** What Execute does by default: start the agent here, or hand off to the native composer. */
   launchMode: LaunchModeSchema.default("run"),
@@ -20,6 +23,8 @@ export const TodoPrefsSchema = z.object({
   modeId: z.string().default(""),
   /** Last thinking option used for a direct run, validated against the selected model. */
   thinkingOptionId: z.string().default(""),
+  /** Feature choices stay with their provider, so auto-accept never leaks to another harness. */
+  featuresByProvider: z.record(z.string(), FeatureValuesSchema).default({}),
   /** Last successful launch target for each project; shared by the surface and workspace panel. */
   workspaceByProject: z.record(z.string(), z.string()).default({}),
   /** Project the global board showed last; the workspace panel always shows its own project. */

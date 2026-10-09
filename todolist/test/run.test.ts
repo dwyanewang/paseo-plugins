@@ -47,6 +47,20 @@ describe("direct execution", () => {
     expect(create.mock.calls[0][0].config).toEqual({ provider: "claude/opus", modeId: "auto" });
   });
 
+  it.each([true, false])("passes the explicit OpenCode auto-accept choice %s to the host", async (autoAccept) => {
+    const { input, create } = setup("xhigh");
+    input.config = { providerModel: "opencode/dw-openai/gpt-6.1-sol", modeId: "build", thinkingOptionId: "xhigh", featureValues: { auto_accept: autoAccept } };
+    await runWorkItemNow(input);
+    expect(create.mock.calls[0][0].config).toEqual({ provider: "opencode/dw-openai/gpt-6.1-sol", modeId: "build", thinkingOptionId: "xhigh", featureValues: { auto_accept: autoAccept } });
+  });
+
+  it("omits an empty feature configuration", async () => {
+    const { input, create } = setup();
+    input.config.featureValues = {};
+    await runWorkItemNow(input);
+    expect(create.mock.calls[0][0].config).not.toHaveProperty("featureValues");
+  });
+
   it("attaches resolved image bytes to the agent, and omits the field when there are none", async () => {
     const withImages = setup();
     await runWorkItemNow({ ...withImages.input, images: [{ data: "aGk=", mimeType: "image/png" }] });

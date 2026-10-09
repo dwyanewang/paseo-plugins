@@ -118,6 +118,16 @@ function ExecuteModalBody(props: ExecuteModalProps & { item: WorkItem }) {
         {run && form.thinkingOptions.length > 0 ? (
           <SelectRow styles={styles} theme={theme} label="Thinking" value={form.effectiveThinkingOptionId || null} options={form.thinkingOptions} onChange={form.setThinkingOptionId} disabled={form.busy} />
         ) : null}
+        {run ? form.features.map((feature) => feature.type === "toggle" ? (
+          <SettingsCard key={feature.id}>
+            <SettingsSwitch label={feature.label} value={feature.value} onValueChange={(value) => form.setFeatureValue(feature.id, value)} disabled={form.busy} />
+          </SettingsCard>
+        ) : (
+          <SelectRow key={feature.id} styles={styles} theme={theme} label={feature.label} value={feature.value === null ? "default" : `option:${feature.value}`} options={[
+            { value: "default", label: "Default" },
+            ...feature.options.map((option) => ({ value: `option:${option.id}`, label: option.label })),
+          ]} onChange={(value) => form.setFeatureValue(feature.id, value === "default" ? null : value.slice("option:".length))} disabled={form.busy} />
+        )) : null}
       </RowGroup>
       {form.newWorktree ? (
         <View style={[styles.card, { gap: 12 }]}>
@@ -128,6 +138,7 @@ function ExecuteModalBody(props: ExecuteModalProps & { item: WorkItem }) {
       {form.workspaces.isError ? <Notice styles={styles} theme={theme} kind="warning">Could not list workspaces for this project.</Notice> : null}
       {form.noWorkspace ? <Notice styles={styles} theme={theme} kind="warning">{props.canOpenComposer ? TEXT.noWorkspaceForRun : TEXT.noWorkspaceAtAll}</Notice> : null}
       {form.noModel ? <Notice styles={styles} theme={theme} kind="warning">{form.catalog.error ?? TEXT.noProviderForRun}</Notice> : null}
+      {run && form.featureError ? <Notice styles={styles} theme={theme} kind="warning"><Text style={styles.body}>{`Could not load agent features: ${form.featureError}`}</Text><Button styles={styles} theme={theme} label="Retry" onPress={form.retryFeatures} /></Notice> : null}
       {form.invalid ? <Notice styles={styles} theme={theme} kind="warning">{form.invalid.reason === "empty" ? "Enter a prompt before launching." : "The prompt is too long."}</Notice> : null}
       <Text style={styles.mono}>{run ? TEXT.runNotice : `${TEXT.composerModeHint} ${TEXT.seedNotice}`}</Text>
       <DialogActions styles={styles}>
